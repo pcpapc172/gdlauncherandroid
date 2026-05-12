@@ -56,7 +56,38 @@ jobs:
 
           mkdir -p app
           printf '%s' "${KEYSTORE_BASE64}" | base64 --decode > app/keystore.jks
-          ls -l app/keystore.jks
+
+          if [ ! -s app/keystore.jks ]; then
+            echo "Decoded keystore is empty or missing."
+            exit 1
+          fi
+
+          echo "Keystore decoded successfully."
+
+      - name: Verify release keystore
+        if: github.event_name != 'pull_request'
+        env:
+          KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
+          KEYSTORE_KEY_ALIAS: ${{ secrets.KEYSTORE_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${KEYSTORE_STORE_PASSWORD}" ]; then
+            echo "KEYSTORE_STORE_PASSWORD secret is missing."
+            exit 1
+          fi
+
+          if [ -z "${KEYSTORE_KEY_ALIAS}" ]; then
+            echo "KEYSTORE_KEY_ALIAS secret is missing."
+            exit 1
+          fi
+
+          keytool -list \
+            -keystore app/keystore.jks \
+            -storepass "${KEYSTORE_STORE_PASSWORD}" \
+            -alias "${KEYSTORE_KEY_ALIAS}" >/dev/null
+
+          echo "Keystore password and alias verified."
 
       - name: Build signed release APK
         if: github.event_name != 'pull_request'

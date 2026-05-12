@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- External files directory: /storage/emulated/0/Android/data/PACKAGE/files/ -->
+    <external-files-path name="external_files" path="." />
+    
+    <!-- Instances subdirectory where patched APKs are stored -->
+    <external-files-path name="instances" path="instances/" />
+    
+    <!-- Downloads subdirectory -->
+    <external-files-path name="downloads" path="Download/" />
+    
+    <!-- Cache directory -->
+    <cache-path name="cache" path="." />
+</paths>

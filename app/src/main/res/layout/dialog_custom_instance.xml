@@ -22,13 +22,45 @@
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="8dp"
             android:hint="Instance Name *">
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etName"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
         </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Browse installed apps -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="12dp">
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Package (tap Browse to pick)">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etPackage"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text"
+                    android:fontFamily="monospace"
+                    android:textSize="13sp"/>
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <Button
+                android:id="@+id/btnBrowseApps"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="Browse"
+                style="@style/Widget.Material3.Button.OutlinedButton"/>
+
+        </LinearLayout>
 
         <!-- Geode Checkbox -->
         <CheckBox
@@ -41,13 +73,13 @@
         <!-- Advanced Section Toggle -->
         <Button
             android:id="@+id/btnToggleAdvanced"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Show Advanced ▼"
             android:layout_marginBottom="8dp"
-            style="@style/Widget.Material3.Button.TextButton"/>
+            style="@style/Widget.Material3.Button.OutlinedButton"/>
 
-        <!-- Advanced Section (Hidden by default) -->
+        <!-- Advanced Section -->
         <LinearLayout
             android:id="@+id/layoutAdvanced"
             android:layout_width="match_parent"
@@ -55,40 +87,28 @@
             android:orientation="vertical"
             android:visibility="gone">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="⚠️ Package name MUST be exactly 24 characters!"
-                android:textColor="#FF9800"
-                android:textStyle="bold"
-                android:layout_marginBottom="8dp"/>
-
-            <!-- Package Name with Counter -->
             <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/tilPackage"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="8dp"
-                android:hint="Package Name (24 chars)"
-                app:counterEnabled="true"
-                app:counterMaxLength="24"
+                android:hint="Package Name"
                 app:errorEnabled="true"
                 app:helperTextEnabled="true">
                 <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etPackage"
+                    android:id="@+id/etPackageAdv"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:inputType="text"
-                    android:maxLength="30"
                     android:fontFamily="monospace"
                     android:textSize="14sp"/>
             </com.google.android.material.textfield.TextInputLayout>
 
             <Button
                 android:id="@+id/btnGeneratePackage"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Generate Valid Package"
+                android:text="Generate Package Name"
                 android:layout_marginBottom="12dp"
                 style="@style/Widget.Material3.Button.OutlinedButton"/>
 

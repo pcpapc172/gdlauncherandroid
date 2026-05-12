@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
+import android.content.pm.ApplicationInfo
 import android.database.Cursor
 import android.net.Uri
 import android.os.Build
@@ -18,6 +19,7 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.ImageButton
@@ -41,10 +43,6 @@ import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
 import java.io.File
 
-// ---------------------------------------------------------------------------
-// Data models
-// ---------------------------------------------------------------------------
-
 data class Instance(
     @SerializedName("id")         val id: String?,
     @SerializedName("name")       val name: String?,
@@ -55,7 +53,6 @@ data class Instance(
     @SerializedName("main")       val main: String?,
     @SerializedName("geode_url")  val geodeUrl: String? = null,
     @SerializedName("is_custom")  val isCustom: Boolean = false,
-    // @Transient keeps these out of JSON serialisation
     @Transient var downloadId: Long = -1L,
     @Transient var isDownloading: Boolean = false,
     @Transient var downloadProgress: Int = 0
@@ -77,10 +74,6 @@ interface ApiService {
     suspend fun getLauncherUpdate(): LauncherUpdate
 }
 
-// ---------------------------------------------------------------------------
-// MainActivity
-// ---------------------------------------------------------------------------
-
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
@@ -90,7 +83,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
     private val gson = Gson()
 
-    private val activeDownloads = mutableMapOf<Long, Int>() // downloadId -> position
+    private val activeDownloads = mutableMapOf<Long, Int>()
     private var downloadReceiver: BroadcastReceiver? = null
 
     companion object {
@@ -99,14 +92,9 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_CUSTOM_INSTANCES = "custom_instances"
         private const val KEY_SERVER_CACHE     = "server_instances_cache"
         private const val KEY_INSTANCE_COUNTER = "instance_counter"
-        private const val REQUIRED_PKG_LENGTH  = 24
         private const val DEFAULT_GEODE_URL    =
             "https://github.com/geode-sdk/android/releases/latest/download/Geode.apk"
     }
-
-    // -----------------------------------------------------------------------
-    // Lifecycle
-    // -----------------------------------------------------------------------
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -114,12 +102,10 @@ class MainActivity : AppCompatActivity() {
             binding = ActivityMainBinding.inflate(layoutInflater)
             setContentView(binding.root)
             setSupportActionBar(binding.toolbar)
-
             prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-
             setupRecyclerView()
-            loadPersistedInstances()   // populate from cache immediately
-            fetchDataFromServer()      // then silently refresh from network
+            loadPersistedInstances()
+            fetchDataFromServer()
             registerDownloadReceiver()
         } catch (e: Exception) {
             Log.e(TAG, "Error in onCreate", e)
@@ -143,10 +129,6 @@ class MainActivity : AppCompatActivity() {
         downloadReceiver?.let { unregisterReceiver(it) }
     }
 
-    // -----------------------------------------------------------------------
-    // Menu
-    // -----------------------------------------------------------------------
-
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
         menuInflater.inflate(R.menu.main_menu, menu)
         return true
@@ -159,74 +141,49 @@ class MainActivity : AppCompatActivity() {
         else -> super.onOptionsItemSelected(item)
     }
 
-    // -----------------------------------------------------------------------
-    // Persistence
-    // -----------------------------------------------------------------------
+    // ── Persistence ─────────────────────────────────────────────────────────
 
-    /**
-     * Load custom instances + cached server instances from SharedPreferences.
-     * This is the offline path – works with zero network.
-     */
     private fun loadPersistedInstances() {
         instancesList.clear()
-
-        // Custom instances
         try {
             val json = prefs.getString(KEY_CUSTOM_INSTANCES, null)
             if (!json.isNullOrEmpty()) {
                 val type = object : TypeToken<List<Instance>>() {}.type
                 val customs: List<Instance> = gson.fromJson(json, type)
                 instancesList.addAll(customs.filter { it.isCustom })
-                Log.d(TAG, "Loaded ${customs.size} custom instances")
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading custom instances", e)
-        }
+        } catch (e: Exception) { Log.e(TAG, "Error loading custom instances", e) }
 
-        // Cached server instances
         try {
             val json = prefs.getString(KEY_SERVER_CACHE, null)
             if (!json.isNullOrEmpty()) {
                 val type = object : TypeToken<List<Instance>>() {}.type
                 val cached: List<Instance> = gson.fromJson(json, type)
                 instancesList.addAll(cached.filter { !it.isCustom })
-                Log.d(TAG, "Loaded ${cached.size} cached server instances")
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading cached server instances", e)
-        }
+        } catch (e: Exception) { Log.e(TAG, "Error loading cached server instances", e) }
 
         adapter.notifyDataSetChanged()
     }
 
     private fun saveCustomInstances() {
         try {
-            val customs = instancesList.filter { it.isCustom }
-            prefs.edit().putString(KEY_CUSTOM_INSTANCES, gson.toJson(customs)).apply()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error saving custom instances", e)
-        }
+            prefs.edit().putString(KEY_CUSTOM_INSTANCES, gson.toJson(instancesList.filter { it.isCustom })).apply()
+        } catch (e: Exception) { Log.e(TAG, "Error saving custom instances", e) }
     }
 
     private fun cacheServerInstances(instances: List<Instance>) {
         try {
-            prefs.edit()
-                .putString(KEY_SERVER_CACHE, gson.toJson(instances.filter { !it.isCustom }))
-                .apply()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error caching server instances", e)
-        }
+            prefs.edit().putString(KEY_SERVER_CACHE, gson.toJson(instances.filter { !it.isCustom })).apply()
+        } catch (e: Exception) { Log.e(TAG, "Error caching server instances", e) }
     }
 
-    // -----------------------------------------------------------------------
-    // Networking
-    // -----------------------------------------------------------------------
+    // ── Networking ──────────────────────────────────────────────────────────
 
     private fun buildApi(): ApiService = Retrofit.Builder()
         .baseUrl("http://api.pcpapc172.ir/")
         .addConverterFactory(GsonConverterFactory.create())
-        .build()
-        .create(ApiService::class.java)
+        .build().create(ApiService::class.java)
 
     private fun fetchDataFromServer() {
         binding.loadingSpinner.visibility = View.VISIBLE
@@ -234,20 +191,13 @@ class MainActivity : AppCompatActivity() {
             try {
                 val serverData = withContext(Dispatchers.IO) { buildApi().getInstances() }
                 val valid = serverData.filter { !it.name.isNullOrEmpty() && !it.id.isNullOrEmpty() }
-
-                // Keep custom instances, replace server ones
                 instancesList.removeAll { !it.isCustom }
                 instancesList.addAll(valid)
-
                 cacheServerInstances(valid)
                 adapter.notifyDataSetChanged()
             } catch (e: Exception) {
                 Log.e(TAG, "Network error", e)
-                Toast.makeText(
-                    this@MainActivity,
-                    "Offline – showing cached data",
-                    Toast.LENGTH_SHORT
-                ).show()
+                Toast.makeText(this@MainActivity, "Offline – showing cached data", Toast.LENGTH_SHORT).show()
             } finally {
                 binding.loadingSpinner.visibility = View.GONE
             }
@@ -275,8 +225,7 @@ class MainActivity : AppCompatActivity() {
             append("Update now?")
         }
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Update Available")
-            .setMessage(msg)
+            .setTitle("Update Available").setMessage(msg)
             .setPositiveButton("Update") { _, _ -> downloadLauncherUpdate(update) }
             .setNegativeButton("Later", null)
             .apply { if (update.forceUpdate) setCancelable(false) }
@@ -285,52 +234,34 @@ class MainActivity : AppCompatActivity() {
 
     private fun downloadLauncherUpdate(update: LauncherUpdate) {
         val req = DownloadManager.Request(Uri.parse(update.downloadUrl))
-            .setTitle("GD Launcher Update")
-            .setDescription("v${update.versionName}")
+            .setTitle("GD Launcher Update").setDescription("v${update.versionName}")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, "GDLauncher_update.apk")
         (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(req)
         Toast.makeText(this, "Downloading update…", Toast.LENGTH_SHORT).show()
     }
 
-    // -----------------------------------------------------------------------
-    // Download & install pre-patched APKs
-    // -----------------------------------------------------------------------
+    // ── Download & install ──────────────────────────────────────────────────
 
     fun startDownload(instance: Instance, position: Int) {
         val url = instance.url
-        if (url.isNullOrEmpty()) {
-            Toast.makeText(this, "No download URL for this instance", Toast.LENGTH_LONG).show()
-            return
-        }
-
+        if (url.isNullOrEmpty()) { Toast.makeText(this, "No download URL", Toast.LENGTH_LONG).show(); return }
         val outDir  = File(getExternalFilesDir(null), "instances").also { it.mkdirs() }
         val outFile = File(outDir, "${instance.id}.apk")
-
         val req = DownloadManager.Request(Uri.parse(url))
             .setTitle("Downloading ${instance.name}")
             .setDescription("Pre-patched GD instance")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             .setDestinationUri(Uri.fromFile(outFile))
-
-        val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val dm   = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         val dlId = dm.enqueue(req)
-
-        instance.downloadId       = dlId
-        instance.isDownloading    = true
-        instance.downloadProgress = 0
-        activeDownloads[dlId]     = position
+        instance.downloadId = dlId; instance.isDownloading = true; instance.downloadProgress = 0
+        activeDownloads[dlId] = position
         adapter.notifyItemChanged(position)
-
         pollDownloadProgress(dlId, position, instance, outFile)
     }
 
-    private fun pollDownloadProgress(
-        downloadId: Long,
-        position: Int,
-        instance: Instance,
-        outFile: File
-    ) {
+    private fun pollDownloadProgress(downloadId: Long, position: Int, instance: Instance, outFile: File) {
         scope.launch(Dispatchers.IO) {
             val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             var done = false
@@ -342,37 +273,19 @@ class MainActivity : AppCompatActivity() {
                         val status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
                         val bytes  = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
                         val total  = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-
                         if (total > 0) instance.downloadProgress = ((bytes * 100) / total).toInt()
-
                         when (status) {
                             DownloadManager.STATUS_SUCCESSFUL -> {
-                                done = true
-                                instance.isDownloading    = false
-                                instance.downloadProgress = 100
+                                done = true; instance.isDownloading = false; instance.downloadProgress = 100
                                 activeDownloads.remove(downloadId)
-                                withContext(Dispatchers.Main) {
-                                    adapter.notifyItemChanged(position)
-                                    promptInstall(outFile.absolutePath, instance)
-                                }
+                                withContext(Dispatchers.Main) { adapter.notifyItemChanged(position); promptInstall(outFile.absolutePath, instance) }
                             }
                             DownloadManager.STATUS_FAILED -> {
-                                done = true
-                                instance.isDownloading = false
-                                instance.downloadId    = -1L
+                                done = true; instance.isDownloading = false; instance.downloadId = -1L
                                 activeDownloads.remove(downloadId)
-                                withContext(Dispatchers.Main) {
-                                    adapter.notifyItemChanged(position)
-                                    Toast.makeText(
-                                        this@MainActivity,
-                                        "Download failed for ${instance.name}",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                }
+                                withContext(Dispatchers.Main) { adapter.notifyItemChanged(position); Toast.makeText(this@MainActivity, "Download failed for ${instance.name}", Toast.LENGTH_LONG).show() }
                             }
-                            else -> withContext(Dispatchers.Main) {
-                                adapter.updateProgress(position)
-                            }
+                            else -> withContext(Dispatchers.Main) { adapter.updateProgress(position) }
                         }
                     }
                 }
@@ -395,21 +308,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Install prompt
-    // -----------------------------------------------------------------------
+    // ── Install ─────────────────────────────────────────────────────────────
 
     private fun promptInstall(path: String, instance: Instance) {
-        if (!File(path).exists()) {
-            Toast.makeText(this, "APK file not found", Toast.LENGTH_LONG).show()
-            return
-        }
+        if (!File(path).exists()) { Toast.makeText(this, "APK file not found", Toast.LENGTH_LONG).show(); return }
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Install ${instance.name}?")
             .setMessage("Package: ${instance.pkg}\n\nTap Install to proceed.")
             .setPositiveButton("Install") { _, _ -> installApk(path) }
-            .setNegativeButton("Cancel", null)
-            .show()
+            .setNegativeButton("Cancel", null).show()
     }
 
     private fun installApk(path: String) {
@@ -421,15 +328,10 @@ class MainActivity : AppCompatActivity() {
                 setDataAndType(uri, "application/vnd.android.package-archive")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
             })
-        } catch (e: Exception) {
-            Log.e(TAG, "Install error", e)
-            Toast.makeText(this, "Install error: ${e.message}", Toast.LENGTH_LONG).show()
-        }
+        } catch (e: Exception) { Toast.makeText(this, "Install error: ${e.message}", Toast.LENGTH_LONG).show() }
     }
 
-    // -----------------------------------------------------------------------
-    // Package helpers
-    // -----------------------------------------------------------------------
+    // ── Package helpers ──────────────────────────────────────────────────────
 
     fun isPackageInstalled(pkgName: String?): Boolean {
         if (pkgName.isNullOrEmpty()) return false
@@ -439,11 +341,8 @@ class MainActivity : AppCompatActivity() {
     fun uninstallApp(pkg: String) {
         val clean = pkg.trim()
         if (!isPackageInstalled(clean)) { Toast.makeText(this, "Not installed", Toast.LENGTH_SHORT).show(); return }
-        try {
-            startActivity(Intent(Intent.ACTION_DELETE).apply { data = Uri.parse("package:$clean") })
-        } catch (e: Exception) {
-            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-        }
+        try { startActivity(Intent(Intent.ACTION_DELETE).apply { data = Uri.parse("package:$clean") }) }
+        catch (e: Exception) { Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show() }
     }
 
     fun openSettings(instance: Instance) {
@@ -456,87 +355,105 @@ class MainActivity : AppCompatActivity() {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 })
             } ?: Toast.makeText(this, "Settings not configured", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(this, "Could not open settings", Toast.LENGTH_SHORT).show()
-        }
+        } catch (e: Exception) { Toast.makeText(this, "Could not open settings", Toast.LENGTH_SHORT).show() }
     }
 
     fun launchGame(instance: Instance) {
         val pkg = instance.pkg?.trim() ?: ""
         try {
             val intent = instance.main?.trim()?.split("/")?.takeIf { it.size == 2 }?.let { parts ->
-                Intent(Intent.ACTION_MAIN).apply {
-                    component = android.content.ComponentName(parts[0], parts[1])
-                }
+                Intent(Intent.ACTION_MAIN).apply { component = android.content.ComponentName(parts[0], parts[1]) }
             } ?: packageManager.getLaunchIntentForPackage(pkg)
-
             intent?.apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
                 startActivity(this)
             } ?: Toast.makeText(this, "Could not launch", Toast.LENGTH_LONG).show()
-        } catch (e: Exception) {
-            Toast.makeText(this, "Launch failed: ${e.message}", Toast.LENGTH_LONG).show()
-        }
+        } catch (e: Exception) { Toast.makeText(this, "Launch failed: ${e.message}", Toast.LENGTH_LONG).show() }
     }
 
-    // -----------------------------------------------------------------------
-    // Custom instance dialog
-    // -----------------------------------------------------------------------
+    fun removeCustomInstance(instance: Instance, position: Int) {
+        instancesList.removeAt(position)
+        adapter.notifyItemRemoved(position)
+        adapter.notifyItemRangeChanged(position, instancesList.size)
+        saveCustomInstances()
+        Toast.makeText(this, "Removed '${instance.name}'", Toast.LENGTH_SHORT).show()
+    }
+
+    // ── Browse installed apps ────────────────────────────────────────────────
+
+    fun showAppPicker(onPicked: (pkg: String, label: String) -> Unit) {
+        val apps = packageManager.getInstalledApplications(0)
+            .filter { it.flags and ApplicationInfo.FLAG_SYSTEM == 0 }
+            .sortedBy { packageManager.getApplicationLabel(it).toString() }
+
+        val labels = apps.map { packageManager.getApplicationLabel(it).toString() }.toTypedArray()
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Pick an app")
+            .setItems(labels) { _, which ->
+                val app = apps[which]
+                onPicked(app.packageName, labels[which])
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // ── Custom instance dialog ───────────────────────────────────────────────
 
     private fun generateUniquePackageName(): String {
         val counter = prefs.getInt(KEY_INSTANCE_COUNTER, 1)
         prefs.edit().putInt(KEY_INSTANCE_COUNTER, counter + 1).apply()
         val base   = "com.gd.inst.v"
-        val padded = counter.toString().padStart(REQUIRED_PKG_LENGTH - base.length, '0')
-        return (base + padded).take(REQUIRED_PKG_LENGTH)
+        val padded = counter.toString().padStart(24 - base.length, '0')
+        return (base + padded).take(24)
     }
 
     private fun showCustomInstanceDialog() {
         val view = layoutInflater.inflate(R.layout.dialog_custom_instance, null)
         val dialog = androidx.appcompat.app.AlertDialog.Builder(this).setView(view).create()
 
-        val etName        = view.findViewById<TextInputEditText>(R.id.etName)
-        val cbUseGeode    = view.findViewById<CheckBox>(R.id.cbUseGeode)
-        val layoutAdv     = view.findViewById<LinearLayout>(R.id.layoutAdvanced)
-        val btnToggleAdv  = view.findViewById<Button>(R.id.btnToggleAdvanced)
-        val etPackage     = view.findViewById<TextInputEditText>(R.id.etPackage)
-        val tilPackage    = view.findViewById<TextInputLayout>(R.id.tilPackage)
-        val etSettings    = view.findViewById<TextInputEditText>(R.id.etSettings)
-        val etMain        = view.findViewById<TextInputEditText>(R.id.etMain)
-        val btnGenerate   = view.findViewById<Button>(R.id.btnGeneratePackage)
-        val btnCreate     = view.findViewById<Button>(R.id.btnCreate)
+        val etName       = view.findViewById<TextInputEditText>(R.id.etName)
+        val etPackage    = view.findViewById<TextInputEditText>(R.id.etPackage)
+        val btnBrowse    = view.findViewById<Button>(R.id.btnBrowseApps)
+        val cbUseGeode   = view.findViewById<CheckBox>(R.id.cbUseGeode)
+        val layoutAdv    = view.findViewById<LinearLayout>(R.id.layoutAdvanced)
+        val btnToggleAdv = view.findViewById<Button>(R.id.btnToggleAdvanced)
+        val tilPackageAdv= view.findViewById<TextInputLayout>(R.id.tilPackage)
+        val etPackageAdv = view.findViewById<TextInputEditText>(R.id.etPackageAdv)
+        val etSettings   = view.findViewById<TextInputEditText>(R.id.etSettings)
+        val etMain       = view.findViewById<TextInputEditText>(R.id.etMain)
+        val btnGenerate  = view.findViewById<Button>(R.id.btnGeneratePackage)
+        val btnCreate    = view.findViewById<Button>(R.id.btnCreate)
 
         layoutAdv.visibility = View.GONE
+
+        // Browse button — pick from installed apps
+        btnBrowse.setOnClickListener {
+            showAppPicker { pkg, label ->
+                etPackage.setText(pkg)
+                if (etName.text.isNullOrEmpty()) etName.setText(label)
+            }
+        }
+
+        // Advanced toggle
         btnToggleAdv.setOnClickListener {
             val show = layoutAdv.visibility == View.GONE
             layoutAdv.visibility = if (show) View.VISIBLE else View.GONE
             btnToggleAdv.text    = if (show) "Hide Advanced ▲" else "Show Advanced ▼"
         }
 
-        etPackage.setText(generateUniquePackageName())
-        etPackage.addTextChangedListener(object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
-            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) {
-                val len = s?.length ?: 0
-                when {
-                    len == REQUIRED_PKG_LENGTH -> { tilPackage.error = null; tilPackage.helperText = "✓ Valid"; btnCreate.isEnabled = true }
-                    len < REQUIRED_PKG_LENGTH  -> { tilPackage.error = "Too short – need ${REQUIRED_PKG_LENGTH - len} more"; btnCreate.isEnabled = false }
-                    else                       -> { tilPackage.error = "Too long – remove ${len - REQUIRED_PKG_LENGTH} chars"; btnCreate.isEnabled = false }
-                }
-            }
-        })
-        etPackage.setText(etPackage.text) // trigger validation
-
-        btnGenerate.setOnClickListener { etPackage.setText(generateUniquePackageName()) }
+        etPackageAdv.setText(generateUniquePackageName())
+        btnGenerate.setOnClickListener { etPackageAdv.setText(generateUniquePackageName()) }
 
         btnCreate.setOnClickListener {
             val name     = etName.text.toString().trim()
+            // prefer the main package field; fall back to advanced field
             val pkg      = etPackage.text.toString().trim()
+                .ifEmpty { etPackageAdv.text.toString().trim() }
             val useGeode = cbUseGeode.isChecked
 
             if (name.isEmpty()) { Toast.makeText(this, "Name is required", Toast.LENGTH_SHORT).show(); return@setOnClickListener }
-            if (pkg.length != REQUIRED_PKG_LENGTH) { Toast.makeText(this, "Package must be $REQUIRED_PKG_LENGTH chars", Toast.LENGTH_LONG).show(); return@setOnClickListener }
+            if (pkg.isEmpty())  { Toast.makeText(this, "Package is required – tap Browse or enter manually", Toast.LENGTH_LONG).show(); return@setOnClickListener }
 
             val instance = Instance(
                 id       = "custom_${System.currentTimeMillis()}",
@@ -553,7 +470,7 @@ class MainActivity : AppCompatActivity() {
             instancesList.add(0, instance)
             adapter.notifyItemInserted(0)
             binding.recyclerView.scrollToPosition(0)
-            saveCustomInstances() // persist before any refresh can wipe it
+            saveCustomInstances()
             dialog.dismiss()
             Toast.makeText(this, "Created '${instance.name}'", Toast.LENGTH_SHORT).show()
         }
@@ -561,9 +478,7 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    // -----------------------------------------------------------------------
-    // RecyclerView
-    // -----------------------------------------------------------------------
+    // ── RecyclerView ─────────────────────────────────────────────────────────
 
     private fun setupRecyclerView() {
         adapter = InstanceAdapter(instancesList, this)
@@ -577,14 +492,15 @@ class MainActivity : AppCompatActivity() {
     ) : RecyclerView.Adapter<InstanceAdapter.Holder>() {
 
         inner class Holder(view: View) : RecyclerView.ViewHolder(view) {
-            val tvName         : TextView     = view.findViewById(R.id.tvName)
-            val tvVersion      : TextView     = view.findViewById(R.id.tvVersion)
-            val btnAction      : Button       = view.findViewById(R.id.btnAction)
-            val btnSettings    : ImageButton  = view.findViewById(R.id.btnSettings)
-            val btnUninstall   : ImageButton  = view.findViewById(R.id.btnUninstall)
-            val layoutProgress : LinearLayout = view.findViewById(R.id.layoutProgress)
-            val progressBar    : ProgressBar  = view.findViewById(R.id.progressBar)
-            val tvPercentage   : TextView     = view.findViewById(R.id.tvPercentage)
+            val tvName          : TextView    = view.findViewById(R.id.tvName)
+            val tvVersion       : TextView    = view.findViewById(R.id.tvVersion)
+            val btnAction       : Button      = view.findViewById(R.id.btnAction)
+            val btnSettings     : ImageButton = view.findViewById(R.id.btnSettings)
+            val btnUninstall    : ImageButton = view.findViewById(R.id.btnUninstall)
+            val btnDeleteCustom : ImageButton = view.findViewById(R.id.btnDeleteCustom)
+            val layoutProgress  : LinearLayout= view.findViewById(R.id.layoutProgress)
+            val progressBar     : ProgressBar = view.findViewById(R.id.progressBar)
+            val tvPercentage    : TextView    = view.findViewById(R.id.tvPercentage)
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder =
@@ -600,6 +516,23 @@ class MainActivity : AppCompatActivity() {
 
                 holder.tvName.text    = item.name ?: "Unknown"
                 holder.tvVersion.text = "Ver: ${item.version ?: "?"}"
+
+                // Delete button — custom instances only, always visible in corner
+                if (item.isCustom) {
+                    holder.btnDeleteCustom.visibility = View.VISIBLE
+                    holder.btnDeleteCustom.setOnClickListener {
+                        androidx.appcompat.app.AlertDialog.Builder(ctx)
+                            .setTitle("Remove '${item.name}'?")
+                            .setMessage("This removes it from the list only. The app stays installed.")
+                            .setPositiveButton("Remove") { _, _ ->
+                                (ctx as? MainActivity)?.removeCustomInstance(item, holder.adapterPosition)
+                            }
+                            .setNegativeButton("Cancel", null)
+                            .show()
+                    }
+                } else {
+                    holder.btnDeleteCustom.visibility = View.GONE
+                }
 
                 if (item.isDownloading) {
                     holder.layoutProgress.visibility = View.VISIBLE
@@ -624,14 +557,11 @@ class MainActivity : AppCompatActivity() {
                         }
                         hasUrl -> {
                             holder.btnAction.text = "Download & Install"
-                            holder.btnAction.setOnClickListener {
-                                (ctx as? MainActivity)?.startDownload(item, holder.adapterPosition)
-                            }
+                            holder.btnAction.setOnClickListener { (ctx as? MainActivity)?.startDownload(item, holder.adapterPosition) }
                             holder.btnSettings.visibility  = View.GONE
                             holder.btnUninstall.visibility = View.GONE
                         }
                         else -> {
-                            // Custom instance, no URL – must be sideloaded externally
                             holder.btnAction.text      = "Not Installed"
                             holder.btnAction.isEnabled = false
                             holder.btnSettings.visibility  = View.GONE
@@ -655,7 +585,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         fun updateProgress(position: Int) = notifyItemChanged(position, "progress")
-
         override fun getItemCount(): Int = list.size
     }
 }

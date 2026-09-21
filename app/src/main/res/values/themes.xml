@@ -1,17 +1,57 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.GDInstanceManager" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Brand / primary -->
+        <item name="colorPrimary">@color/brand_primary</item>
         <item name="colorOnPrimary">@color/white</item>
-        <!-- Primary brand color. -->
-        <item name="colorPrimary">#212121</item>
-        <item name="colorPrimaryVariant">#000000</item>
-        <item name="colorOnPrimary">#FFFFFF</item>
-        <!-- Secondary brand color. -->
-        <item name="colorSecondary">#2196F3</item>
-        <item name="colorSecondaryVariant">#1976D2</item>
-        <item name="colorOnSecondary">#FFFFFF</item>
-        <!-- Status bar color. -->
-        <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
-        <!-- Customize your theme here. -->
+        <item name="colorPrimaryContainer">@color/brand_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/brand_on_primary_container</item>
+
+        <!-- Secondary reuses the brand accent so buttons/links stay consistent -->
+        <item name="colorSecondary">@color/brand_primary</item>
+        <item name="colorOnSecondary">@color/white</item>
+
+        <!-- Surfaces -->
+        <item name="android:colorBackground">@color/background</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/on_surface</item>
+        <item name="colorOnSurfaceVariant">@color/on_surface_variant</item>
+        <item name="colorSurfaceContainer">@color/surface_container</item>
+        <item name="colorSurfaceContainerHigh">@color/surface_container_high</item>
+        <item name="colorOutline">@color/outline</item>
+
+        <!-- Status/nav bars follow the surface, not the primary brand color -->
+        <item name="android:statusBarColor">@color/surface</item>
+        <item name="android:navigationBarColor">@color/surface</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
+
+        <!-- Rounded corners app-wide for cards/buttons/dialogs -->
+        <item name="shapeAppearanceCornerExtraSmall">@style/ShapeAppearance.GD.Corner.Small</item>
+        <item name="shapeAppearanceCornerSmall">@style/ShapeAppearance.GD.Corner.Small</item>
+        <item name="shapeAppearanceCornerMedium">@style/ShapeAppearance.GD.Corner.Medium</item>
+        <item name="shapeAppearanceCornerLarge">@style/ShapeAppearance.GD.Corner.Large</item>
+
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.GD.Dialog</item>
+    </style>
+
+    <style name="ShapeAppearance.GD.Corner.Small" parent="ShapeAppearance.Material3.Corner.Small">
+        <item name="cornerSize">10dp</item>
+    </style>
+
+    <style name="ShapeAppearance.GD.Corner.Medium" parent="ShapeAppearance.Material3.Corner.Medium">
+        <item name="cornerSize">16dp</item>
+    </style>
+
+    <style name="ShapeAppearance.GD.Corner.Large" parent="ShapeAppearance.Material3.Corner.Large">
+        <item name="cornerSize">24dp</item>
+    </style>
+
+    <style name="ThemeOverlay.GD.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.GD.Corner.Medium</item>
+    </style>
+
+    <style name="GD.Toolbar.Title" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:textStyle">bold</item>
     </style>
 </resources>

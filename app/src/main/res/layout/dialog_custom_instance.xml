@@ -8,21 +8,31 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:paddingHorizontal="24dp"
+        android:paddingTop="24dp"
+        android:paddingBottom="8dp">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Create Custom Instance"
-            android:textSize="20sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="16dp"/>
+            android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
+            android:layout_marginBottom="4dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Point the launcher at an installed app"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:layout_marginBottom="20dp"/>
 
         <!-- Name -->
         <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
+            android:layout_marginBottom="12dp"
             android:hint="Instance Name *">
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etName"
@@ -35,10 +45,11 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="12dp">
+            android:gravity="top"
+            android:layout_marginBottom="20dp">
 
             <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -55,20 +66,25 @@
             <Button
                 android:id="@+id/btnBrowseApps"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="56dp"
                 android:layout_marginStart="8dp"
                 android:text="Browse"
                 style="@style/Widget.Material3.Button.OutlinedButton"/>
 
         </LinearLayout>
 
-        <!-- Geode Checkbox -->
-        <CheckBox
+        <com.google.android.material.checkbox.MaterialCheckBox
             android:id="@+id/cbUseGeode"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Launch with Geode mod loader"
-            android:layout_marginBottom="16dp"/>
+            android:layout_marginBottom="8dp"/>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginVertical="16dp"
+            android:background="?attr/colorOutline" />
 
         <!-- Advanced Section Toggle -->
         <Button
@@ -77,7 +93,7 @@
             android:layout_height="wrap_content"
             android:text="Show Advanced ▼"
             android:layout_marginBottom="8dp"
-            style="@style/Widget.Material3.Button.OutlinedButton"/>
+            style="@style/Widget.Material3.Button.TextButton"/>
 
         <!-- Advanced Section -->
         <LinearLayout
@@ -89,9 +105,10 @@
 
             <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/tilPackage"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
+                android:layout_marginBottom="12dp"
                 android:hint="Package Name"
                 app:errorEnabled="true"
                 app:helperTextEnabled="true">
@@ -109,10 +126,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Generate Package Name"
-                android:layout_marginBottom="12dp"
+                android:layout_marginBottom="16dp"
                 style="@style/Widget.Material3.Button.OutlinedButton"/>
 
             <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="12dp"
@@ -126,6 +144,7 @@
             </com.google.android.material.textfield.TextInputLayout>
 
             <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="12dp"
@@ -144,9 +163,10 @@
         <Button
             android:id="@+id/btnCreate"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="52dp"
             android:text="Create Instance"
-            android:layout_marginTop="16dp"/>
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="12dp"/>
 
     </LinearLayout>
 </ScrollView>

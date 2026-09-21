@@ -104,6 +104,11 @@ class MainActivity : AppCompatActivity() {
             setSupportActionBar(binding.toolbar)
             prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             setupRecyclerView()
+            binding.swipeRefresh.setColorSchemeColors(
+                com.google.android.material.color.MaterialColors.getColor(binding.root, com.google.android.material.R.attr.colorPrimary)
+            )
+            binding.swipeRefresh.setOnRefreshListener { fetchDataFromServer() }
+            binding.fabAddCustom.setOnClickListener { showCustomInstanceDialog() }
             loadPersistedInstances()
             fetchDataFromServer()
             registerDownloadReceiver()
@@ -135,9 +140,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
-        R.id.action_refresh        -> { fetchDataFromServer(); true }
-        R.id.action_check_update   -> { checkForLauncherUpdate(); true }
-        R.id.action_install_custom -> { showCustomInstanceDialog(); true }
+        R.id.action_refresh      -> { fetchDataFromServer(); true }
+        R.id.action_check_update -> { checkForLauncherUpdate(); true }
         else -> super.onOptionsItemSelected(item)
     }
 
@@ -164,6 +168,11 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) { Log.e(TAG, "Error loading cached server instances", e) }
 
         adapter.notifyDataSetChanged()
+        updateEmptyState()
+    }
+
+    private fun updateEmptyState() {
+        binding.emptyState.visibility = if (instancesList.isEmpty()) View.VISIBLE else View.GONE
     }
 
     private fun saveCustomInstances() {
@@ -186,7 +195,7 @@ class MainActivity : AppCompatActivity() {
         .build().create(ApiService::class.java)
 
     private fun fetchDataFromServer() {
-        binding.loadingSpinner.visibility = View.VISIBLE
+        if (!binding.swipeRefresh.isRefreshing) binding.loadingSpinner.visibility = View.VISIBLE
         scope.launch {
             try {
                 val serverData = withContext(Dispatchers.IO) { buildApi().getInstances() }
@@ -195,11 +204,13 @@ class MainActivity : AppCompatActivity() {
                 instancesList.addAll(valid)
                 cacheServerInstances(valid)
                 adapter.notifyDataSetChanged()
+                updateEmptyState()
             } catch (e: Exception) {
                 Log.e(TAG, "Network error", e)
                 Toast.makeText(this@MainActivity, "Offline – showing cached data", Toast.LENGTH_SHORT).show()
             } finally {
                 binding.loadingSpinner.visibility = View.GONE
+                binding.swipeRefresh.isRefreshing = false
             }
         }
     }
@@ -376,6 +387,7 @@ class MainActivity : AppCompatActivity() {
         adapter.notifyItemRemoved(position)
         adapter.notifyItemRangeChanged(position, instancesList.size)
         saveCustomInstances()
+        updateEmptyState()
         Toast.makeText(this, "Removed '${instance.name}'", Toast.LENGTH_SHORT).show()
     }
 
@@ -471,6 +483,7 @@ class MainActivity : AppCompatActivity() {
             adapter.notifyItemInserted(0)
             binding.recyclerView.scrollToPosition(0)
             saveCustomInstances()
+            updateEmptyState()
             dialog.dismiss()
             Toast.makeText(this, "Created '${instance.name}'", Toast.LENGTH_SHORT).show()
         }

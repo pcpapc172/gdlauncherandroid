@@ -1,371 +1,107 @@
-# GD Instance Launcher - Complete Package
+# GD Instance Launcher
 
-## 🎯 What's New
+Android launcher for making separate installations of a user's own Geometry Dash APK and managing their shortcuts. Android 7.0+; Android SDK 34; Java 17.
 
-### Server-Side Instances
-- **Automatic patching**: Server instances only need `id` and `name`
-- **No URLs needed**: Launcher patches official GD automatically
-- **Just tap "Install"**: Everything else is handled
+## Instance types
 
-### Custom Instances
-- **Simple UI**: Name + optional Geode checkbox
-- **Geode Integration**: Downloads and integrates Geode fork automatically
-- **Collapsible Advanced**: Package name and activities hidden by default
-- **24-char validation**: Real-time validation with auto-generation
+- **Clone installed Geometry Dash:** read the installed base APK and all configuration splits, patch and sign each, then install the APK set through Android's installer.
+- **Clone a local APK:** select an original, standalone Geometry Dash APK with the document picker. Split APK sets should be cloned from an installed game instead.
+- **Shortcut:** launch an already installed app. Shortcuts do not modify or duplicate the app.
 
-## 📦 Installation
+Each game clone needs a valid **24-character ASCII package name**. The dialog generates one and checks for duplicates. Arbitrary-length names are deliberately rejected: fixed-size replacements preserve offsets in native libraries and resource tables. Existing game saves are not copied; each package receives its own Android app storage.
 
-### Method 1: Replace Files Directly
+## APK transformation
 
-1. **Extract this package**
-2. **Copy these files to your project:**
-   ```
-   app/src/main/java/ir/pcpapc172/gdlauncher1/MainActivity.kt → [YOUR_PROJECT]/app/src/main/java/ir/pcpapc172/gdlauncher1/
-   app/src/main/java/ir/pcpapc172/gdlauncher1/APKPatcher.kt → [YOUR_PROJECT]/app/src/main/java/ir/pcpapc172/gdlauncher1/
-   app/src/main/res/layout/dialog_custom_instance.xml → [YOUR_PROJECT]/app/src/main/res/layout/
-   ```
-3. **Rebuild project** in Android Studio
+The patcher does not invoke apktool or a shell. It performs the equivalent package retargeting directly in APK entries:
 
-### Method 2: Replace Entire App Module
+1. Rebuild the binary AndroidManifest string pool, change the package and component references, and set the instance label.
+2. Replace dotted and slash-form references to `com.robtopx.geometryjump` across entries, including UTF-8 and UTF-16 strings. Stream native libraries and assets instead of holding large libraries in memory.
+3. Patch all native-library ABIs, including `libcocos2d.so` and `libcocos2dcpp.so`. Refuse unsupported JNI package-symbol changes, which would also require rebuilding ELF symbol hashes.
+4. Re-serialize DEX files with dexlib2 so string/type ordering, signatures, and checksums are valid.
+5. Remove obsolete APK signatures, store native libraries at 16 KiB ZIP alignment and resources.arsc at 4-byte alignment.
+6. Sign APKs using a private, locally generated identity and verify the output signatures before publishing the prepared files.
 
-1. **Backup your current `app/` directory**
-2. **Delete `app/src/main/java/ir/pcpapc172/gdlauncher1/MainActivity.kt`**
-3. **Copy the new files from this package**
-4. **Sync Gradle**
+ZIP traversal, duplicate entries, excessive expanded sizes, memory limits, and cancellation are checked. Unsupported formats fail with an error rather than installing a partially patched output. Preparation preserves the previous successful output until the new result is complete.
 
-## 🚨 Critical: 24-Character Package Names
+This does not bypass game licence checks or alter Geode's game-origin checks. Compatibility with future game and Geode releases needs device testing.
 
-**All package names MUST be exactly 24 characters!**
+## Geode
 
-Original: `com.robtopx.geometryjump` (24 chars)
+Check the Geode option on a clone to download the latest stable APK from [`geode-sdk/android-launcher`](https://github.com/geode-sdk/android-launcher). Release metadata is retrieved over HTTPS; the published SHA-256 digest is checked when available. The game library ABI determines which Geode asset is selected.
 
-### Why?
-The package name appears in `lib/*/libcocos2dcpp.so` as a null-terminated string. Hex editing requires exact length matching to prevent binary corruption.
+The launcher is installed as a **separate package per game instance**. Its game-package references and runtime application identity/provider authorities are retargeted while its original Java classes and native JNI bindings are preserved. Install the game first, then its Geode launcher. Removing an entry does not uninstall either package.
 
-### Valid Examples
+## Downloads and installation
+
+WorkManager owns preparation/download tasks across rotation and process recreation. Rows use instance IDs, not RecyclerView positions. Cancel/retry, progress/error text, prepared-APK installation, explicit rebuilding, and storage cleanup are available. Android's installer handles user consent; its results are returned to the app. Unknown-source installation permission is requested before installation.
+
+Launcher updates are downloaded separately, validated against the installed launcher's signing certificate, and exposed through an Install update button. The server cannot force an update or bypass Android installation consent.
+
+## Instance server
+
+The launcher uses HTTPS only:
+
+- `https://api.pcpapc172.ir/archive/android_instances.json`
+- `https://api.pcpapc172.ir/archive/latestandroidlauncher.json`
+
+Server unavailability keeps cached entries. The API must provide valid HTTPS and JSON; there is no insecure HTTP fallback.
+
+Minimal instance array:
+
+```json
+[
+  { "id": "vanilla", "name": "My game", "version": "2.2" },
+  { "id": "modded", "name": "My modded game", "geode_url": "latest" }
+]
 ```
-com.gd.inst.v0000000001  ✅ (24 chars)
-com.gdinstance.inst0001  ✅ (24 chars)  
-ir.gdlaunch.instance001  ✅ (24 chars)
-```
 
-### Invalid Examples
-```
-com.gd.instance1         ❌ (16 chars - TOO SHORT)
-com.geometrydash.inst01  ❌ (27 chars - TOO LONG)
-```
+Without `pkg`, a deterministic 24-character package is generated from the ID. Without `url`, the installed original game is patched. A supplied `url` instead downloads an already prepared APK whose package must match `pkg`.
 
-## 📋 Server JSON Format
+Optional fields: `pkg`, `url`, `version`, `version_code` (positive integer), `settings`, `main`, `geode_url`, `sha256`, `signer_sha256`. Activity components use `package/.Activity` or `package/full.Activity` and must belong to the selected game or Geode launcher. IDs must contain only letters, numbers, underscores and hyphens. The ID `launcher_update` is reserved. Server values cannot mark an entry as custom.
 
-### Simple Format (Recommended)
-Server instances now only need `id` and `name`. Everything else is auto-generated:
+Update JSON:
 
 ```json
 {
-  "id": "gd_22",
-  "name": "Geometry Dash 2.2",
-  "version": "2.2.0"
+  "version_code": 4,
+  "version_name": "2.1.1",
+  "download_url": "https://example.org/GDLauncher.apk",
+  "sha256": "<optional 64 hexadecimal characters>",
+  "changelog": "Release notes"
 }
 ```
 
-The launcher will:
-1. Generate a unique 24-char package name
-2. Patch official GD APK
-3. Install the instance
+Omit `sha256` when unavailable; do not send the placeholder above.
 
-### Advanced Format (Optional)
-```json
-{
-  "id": "gd_custom",
-  "name": "GD Custom",
-  "pkg": "com.gd.inst.v0000000001",
-  "version": "2.2.0",
-  "settings": "com.gd.inst.v0000000001/SettingsActivity",
-  "main": "com.gd.inst.v0000000001/MainActivity",
-  "geode_url": "https://example.com/geode_fork.apk"
-}
+## Management and backups
+
+Search names/packages; sort by name or installation status; favourite entries; drag custom entries in Custom order; edit entries; undo list removal; browse installed launchable apps; choose light/dark/system appearance; copy diagnostics; and remove prepared APKs from Storage.
+
+JSON export/import preserves custom entry definitions, not game saves or local APK source files. Local-APK entries need their source selected again on another device. Invalid legacy data is retained under Export recovery data; old shortcut entries are migrated.
+
+**Back up the signing key before reinstalling the launcher.** Use Back up signing key and a password of at least 12 characters. The encrypted PKCS#12 backup is restored with Restore signing key. Android automatic backup excludes signing keys, prepared APKs, source APKs and WorkManager's device-specific state. Losing the key means existing clones cannot be updated with a newly generated key; uninstalling a clone can erase its saves.
+
+No signing key is shipped in this repository. A previously committed key was removed from the current tree; removal does not remove it from Git history. If it was a real release key, treat it as exposed and arrange a signing-key migration before publishing updates.
+
+## Build and checks
+
+```sh
+bash gradlew testDebugUnitTest lintDebug assembleDebug
 ```
 
-## 🎮 Features
+CI runs those checks and uploads the APK and reports even when later release signing is unavailable. Non-tag builds work without release secrets. Tagged releases require all signing secrets and a tag matching `versionName`; increment `versionCode` for every published update.
 
-### 1. Server-Side Instances
-- Fetches from `/archive/android_instances.json`
-- Auto-generates package names
-- Patches and installs automatically
-- No pre-patched APKs needed
+Release signing environment variables: `KEYSTORE_PATH`, `KEYSTORE_STORE_PASSWORD`, `KEYSTORE_KEY_ALIAS`, `KEYSTORE_KEY_PASSWORD`. GitHub Actions obtains the keystore from `KEYSTORE_BASE64` and deletes the temporary copy afterward.
 
-### 2. Custom Instances
-**Simple Mode** (Default):
-- Name input
-- "Launch with Geode" checkbox
-- One-click create
+## Device acceptance checks
 
-**Advanced Mode** (Hidden):
-- Custom 24-char package name
-- Settings activity path
-- Main activity path
-- Real-time validation
+Before publishing, exercise a legitimate game copy on physical devices:
 
-### 3. Geode Integration
-When "Launch with Geode" is checked:
-1. Downloads Geode fork from URL
-2. Extracts Geode APK
-3. Copies Geode's native libraries to GD
-4. Patches package name in both
-5. Repackages as single APK
+- Base + split installation on Android 7, 12, and 14+; both available ARM ABIs.
+- Vanilla launch and save isolation; UTF-8/UTF-16 package references.
+- Per-instance Geode launch, settings, permissions and provider access.
+- Rotation, process termination, cancellation, failed networks and insufficient storage.
+- Installation cancellation/failure/retry, certificate conflict and successful update.
+- Signing-key backup/restore and an update to an existing clone.
 
-### 4. Hex Editing
-- Searches all `.so` files in all architectures
-- Finds every occurrence of "com.robtopx.geometryjump"
-- Replaces byte-for-byte with new 24-char package
-- Maintains binary integrity
-
-## 🔧 How It Works
-
-### Patching Flow
-
-```
-1. User taps "Install" on instance
-   ↓
-2. Check if official GD installed
-   ↓
-3. Extract official GD APK from /data/app/
-   ↓
-4. [If Geode] Download & extract Geode fork
-   ↓
-5. [If Geode] Copy Geode libs to GD
-   ↓
-6. Patch AndroidManifest.xml
-   ├─ Replace "com.robtopx.geometryjump"
-   └─ With new 24-char package name
-   ↓
-7. Hex edit ALL .so files
-   ├─ lib/armeabi-v7a/libcocos2dcpp.so
-   ├─ lib/arm64-v8a/libcocos2dcpp.so
-   ├─ lib/x86/libcocos2dcpp.so
-   └─ lib/x86_64/libcocos2dcpp.so
-   ↓
-8. Repackage APK
-   ↓
-9. Sign APK
-   ↓
-10. Prompt user to install
-```
-
-### Custom Instance Creation
-
-```
-User fills form:
-├─ Name: "My GD Instance"
-├─ Geode: ☑ (checked)
-└─ Advanced: (collapsed)
-
-Launcher generates:
-├─ Package: "com.gd.inst.v0000000042" (auto)
-├─ Geode URL: (default GitHub URL)
-└─ Version: "Geode"
-
-On "Create":
-├─ Validates 24-char length
-├─ Saves to SharedPreferences
-├─ Adds to instance list
-└─ Ready to install
-```
-
-## 📱 UI Flow
-
-### Server Instance
-```
-1. App launches
-   ├─ Loads custom instances from storage
-   ├─ Fetches server instances from API
-   └─ Displays in RecyclerView
-
-2. User taps "Install" on server instance
-   ├─ Shows progress (0-100%)
-   ├─ Patches in background
-   └─ Shows install prompt
-
-3. User taps "Install" in prompt
-   ├─ Android install dialog appears
-   └─ Instance installed
-
-4. Button changes to "Launch"
-```
-
-### Custom Instance
-```
-1. User taps "+" in menu
-   └─ Custom instance dialog opens
-
-2. Dialog shows:
-   ├─ Name field (required)
-   ├─ "Launch with Geode" checkbox
-   └─ "Show Advanced" button (collapsed)
-
-3. User enters name, optionally checks Geode
-   └─ Taps "Create Instance"
-
-4. Launcher:
-   ├─ Auto-generates 24-char package name
-   ├─ Saves instance to SharedPreferences
-   ├─ Adds to list
-   └─ Ready to install
-```
-
-## 🛠️ Testing
-
-### Test Cases
-
-✅ **Server Instances:**
-- [ ] Fetch instances from server
-- [ ] Generate unique package names
-- [ ] Patch and install successfully
-- [ ] Launch patched instances
-
-✅ **Custom Instances:**
-- [ ] Create vanilla instance
-- [ ] Create Geode instance
-- [ ] Persist after app restart
-- [ ] Advanced section toggles correctly
-
-✅ **Validation:**
-- [ ] 24-char counter works
-- [ ] Error on wrong length
-- [ ] Auto-generate button works
-- [ ] Cannot create with invalid length
-
-✅ **Hex Editing:**
-- [ ] All .so files patched
-- [ ] Multiple occurrences replaced
-- [ ] Binary integrity maintained
-- [ ] Game launches without crashes
-
-## 🐛 Troubleshooting
-
-### "Official GD Required"
-**Cause**: Official GD not installed  
-**Fix**: Install from Play Store
-
-### "Package must be exactly 24 characters"
-**Cause**: Invalid package name length  
-**Fix**: Use auto-generate button
-
-### "Patching failed"
-**Cause**: Storage permission or corrupt GD APK  
-**Fix**: Reinstall official GD, grant storage permission
-
-### Game crashes on launch
-**Cause**: Package name wasn't 24 chars  
-**Fix**: Delete instance, recreate with valid 24-char package
-
-### "Geode download failed"
-**Cause**: Network issue or invalid URL  
-**Fix**: Check internet connection, verify Geode URL in JSON
-
-## 📝 Server JSON Examples
-
-### Minimal (Recommended)
-```json
-[
-  {
-    "id": "gd_vanilla",
-    "name": "Geometry Dash",
-    "version": "2.2.0"
-  }
-]
-```
-
-### With Geode
-```json
-[
-  {
-    "id": "gd_geode",
-    "name": "GD with Geode",
-    "version": "2.2.0 + Geode",
-    "geode_url": "https://github.com/geode-sdk/android/releases/latest/download/Geode.apk"
-  }
-]
-```
-
-### Fully Custom
-```json
-[
-  {
-    "id": "gd_custom",
-    "name": "GD Custom Build",
-    "pkg": "com.custom.gd.inst001",
-    "version": "2.2.0",
-    "settings": "com.custom.gd.inst001/SettingsActivity",
-    "main": "com.custom.gd.inst001/MainActivity",
-    "geode_url": "https://example.com/geode.apk"
-  }
-]
-```
-
-## 🔒 Legal & Security
-
-### User Requirements
-- Must own legitimate copy of Geometry Dash
-- Comply with RobTop's Terms of Service
-- Personal, non-commercial use only
-- Do not distribute patched APKs
-
-### What This Launcher Does
-✅ Creates isolated instances from user's own GD  
-✅ Enables Geode mod loader integration  
-✅ Manages multiple instances  
-
-❌ Does NOT provide pirated content  
-❌ Does NOT crack or bypass license checks  
-❌ Does NOT distribute copyrighted material  
-
-## 📦 Files Included
-
-```
-complete_project/
-├── app/
-│   ├── build.gradle.kts
-│   └── src/main/
-│       ├── AndroidManifest.xml
-│       ├── java/ir/pcpapc172/gdlauncher1/
-│       │   ├── MainActivity.kt         ← UPDATED
-│       │   └── APKPatcher.kt           ← UPDATED
-│       └── res/
-│           ├── layout/
-│           │   ├── activity_main.xml
-│           │   ├── item_instance.xml
-│           │   └── dialog_custom_instance.xml  ← UPDATED
-│           ├── menu/
-│           ├── values/
-│           ├── drawable/
-│           └── xml/
-├── build.gradle.kts
-├── settings.gradle.kts
-└── README.md (this file)
-```
-
-## 🚀 Production Checklist
-
-Before release:
-- [ ] Implement proper APK signing (apksigner)
-- [ ] Add crash reporting (Firebase Crashlytics)
-- [ ] Test on multiple devices/Android versions
-- [ ] Verify all .so files are patched correctly
-- [ ] Add Terms of Service acceptance
-- [ ] Implement update mechanism
-- [ ] Add backup/restore for instances
-
-## 📞 Support
-
-For issues or questions:
-1. Check this README first
-2. Verify 24-char package requirement
-3. Test with official GD installed
-4. Check logs with `adb logcat | grep GDManager`
-
----
-
-**Implementation Date**: December 2024  
-**Critical Features**: Geode Integration + 24-Char Validation + Hex Editing  
-**Status**: Production Ready
+Do not redistribute patched game APKs. Users must supply their own legitimate game copy.

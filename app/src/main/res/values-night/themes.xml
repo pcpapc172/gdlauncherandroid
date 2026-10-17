@@ -19,7 +19,7 @@
 
         <item name="android:statusBarColor">@color/surface</item>
         <item name="android:navigationBarColor">@color/surface</item>
-        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+        <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">false</item>
 
         <item name="shapeAppearanceCornerExtraSmall">@style/ShapeAppearance.GD.Corner.Small</item>

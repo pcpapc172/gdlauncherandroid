@@ -13,3 +13,8 @@ Thumbs.db
 
 # Geode dump (large, not needed in repo)
 geode_dump.txt
+
+# Signing keys must never be committed
+*.jks
+*.keystore
+*.p12

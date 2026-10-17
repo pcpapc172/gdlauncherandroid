@@ -1,172 +1,33 @@
-<?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingHorizontal="24dp"
-        android:paddingTop="24dp"
-        android:paddingBottom="8dp">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Create Custom Instance"
-            android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
-            android:layout_marginBottom="4dp"/>
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Point the launcher at an installed app"
-            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:layout_marginBottom="20dp"/>
-
-        <!-- Name -->
-        <com.google.android.material.textfield.TextInputLayout
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
-            android:hint="Instance Name *">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/etName"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <!-- Browse installed apps -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="top"
-            android:layout_marginBottom="20dp">
-
-            <com.google.android.material.textfield.TextInputLayout
-                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:hint="Package (tap Browse to pick)">
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etPackage"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="text"
-                    android:fontFamily="monospace"
-                    android:textSize="13sp"/>
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <Button
-                android:id="@+id/btnBrowseApps"
-                android:layout_width="wrap_content"
-                android:layout_height="56dp"
-                android:layout_marginStart="8dp"
-                android:text="Browse"
-                style="@style/Widget.Material3.Button.OutlinedButton"/>
-
-        </LinearLayout>
-
-        <com.google.android.material.checkbox.MaterialCheckBox
-            android:id="@+id/cbUseGeode"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Launch with Geode mod loader"
-            android:layout_marginBottom="8dp"/>
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:layout_marginVertical="16dp"
-            android:background="?attr/colorOutline" />
-
-        <!-- Advanced Section Toggle -->
-        <Button
-            android:id="@+id/btnToggleAdvanced"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Show Advanced ▼"
-            android:layout_marginBottom="8dp"
-            style="@style/Widget.Material3.Button.TextButton"/>
-
-        <!-- Advanced Section -->
-        <LinearLayout
-            android:id="@+id/layoutAdvanced"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:visibility="gone">
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/tilPackage"
-                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                android:hint="Package Name"
-                app:errorEnabled="true"
-                app:helperTextEnabled="true">
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etPackageAdv"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="text"
-                    android:fontFamily="monospace"
-                    android:textSize="14sp"/>
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <Button
-                android:id="@+id/btnGeneratePackage"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Generate Package Name"
-                android:layout_marginBottom="16dp"
-                style="@style/Widget.Material3.Button.OutlinedButton"/>
-
-            <com.google.android.material.textfield.TextInputLayout
-                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                android:hint="Settings Activity (optional)">
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etSettings"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textSize="12sp"
-                    android:fontFamily="monospace"/>
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <com.google.android.material.textfield.TextInputLayout
-                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                android:hint="Main Activity (optional)">
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etMain"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textSize="12sp"
-                    android:fontFamily="monospace"/>
-            </com.google.android.material.textfield.TextInputLayout>
-
-        </LinearLayout>
-
-        <!-- Create Button -->
-        <Button
-            android:id="@+id/btnCreate"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:text="Create Instance"
-            android:layout_marginTop="12dp"
-            android:layout_marginBottom="12dp"/>
-
+<?xml version='1.0' encoding='utf-8'?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" android:layout_width="match_parent" android:layout_height="wrap_content">
+  <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="24dp" android:paddingTop="24dp" android:paddingBottom="8dp">
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/create_title" android:textAppearance="@style/TextAppearance.Material3.TitleLarge" android:layout_marginBottom="4dp" />
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/create_help" android:textAppearance="@style/TextAppearance.Material3.BodyMedium" android:textColor="?attr/colorOnSurfaceVariant" android:layout_marginBottom="20dp" />
+    <Spinner android:id="@+id/instanceMode" android:layout_width="match_parent" android:layout_height="48dp" android:layout_marginBottom="12dp" />
+    <com.google.android.material.textfield.TextInputLayout style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="12dp" android:hint="@string/instance_name">
+      <com.google.android.material.textfield.TextInputEditText android:id="@+id/etName" android:layout_width="match_parent" android:layout_height="wrap_content" android:singleLine="true" />
+    </com.google.android.material.textfield.TextInputLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="top" android:layout_marginBottom="20dp">
+      <com.google.android.material.textfield.TextInputLayout style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:hint="@string/package_hint">
+        <com.google.android.material.textfield.TextInputEditText android:id="@+id/etPackage" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:fontFamily="monospace" android:textSize="13sp" android:singleLine="true" />
+      </com.google.android.material.textfield.TextInputLayout>
+      <Button android:id="@+id/btnBrowseApps" android:layout_width="wrap_content" android:layout_height="56dp" android:layout_marginStart="8dp" android:text="@string/browse" style="@style/Widget.Material3.Button.OutlinedButton" />
     </LinearLayout>
+    <com.google.android.material.checkbox.MaterialCheckBox android:id="@+id/cbUseGeode" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/geode_label" android:layout_marginBottom="8dp" />
+    <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginVertical="16dp" android:background="?attr/colorOutline" />
+    <Button android:id="@+id/btnToggleAdvanced" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/advanced" android:layout_marginBottom="8dp" style="@style/Widget.Material3.Button.TextButton" />
+    <LinearLayout android:id="@+id/layoutAdvanced" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+      <com.google.android.material.textfield.TextInputLayout android:id="@+id/tilPackage" style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="12dp" android:hint="@string/package_hint" app:errorEnabled="true" app:helperTextEnabled="true">
+        <com.google.android.material.textfield.TextInputEditText android:id="@+id/etPackageAdv" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:fontFamily="monospace" android:textSize="14sp" android:singleLine="true" />
+      </com.google.android.material.textfield.TextInputLayout>
+      <Button android:id="@+id/btnGeneratePackage" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/generate_package" android:layout_marginBottom="16dp" style="@style/Widget.Material3.Button.OutlinedButton" />
+      <com.google.android.material.textfield.TextInputLayout style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="12dp" android:hint="@string/settings_hint">
+        <com.google.android.material.textfield.TextInputEditText android:id="@+id/etSettings" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:fontFamily="monospace" android:singleLine="true" />
+      </com.google.android.material.textfield.TextInputLayout>
+      <com.google.android.material.textfield.TextInputLayout style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="12dp" android:hint="@string/main_hint">
+        <com.google.android.material.textfield.TextInputEditText android:id="@+id/etMain" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:fontFamily="monospace" android:singleLine="true" />
+      </com.google.android.material.textfield.TextInputLayout>
+    </LinearLayout>
+    <Button android:id="@+id/btnCreate" android:layout_width="match_parent" android:layout_height="52dp" android:text="@string/create" android:layout_marginTop="12dp" android:layout_marginBottom="12dp" />
+  </LinearLayout>
 </ScrollView>

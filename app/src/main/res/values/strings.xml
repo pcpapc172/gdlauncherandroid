@@ -1,3 +1,114 @@
+<?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">GD Instance launcher</string>
+  <string name="app_name">GD Instance Launcher</string>
+  <string name="operations">Preparing instances</string>
+  <string name="cancel">Cancel</string>
+  <string name="install_permission_needed">Allow installation from this launcher, then try again.</string>
+  <string name="restore_key">Restore signing key</string>
+  <string name="key_restored">Signing key restored</string>
+  <string name="import_complete">Instances imported</string>
+  <string name="export_complete">Backup saved</string>
+  <string name="source_selected">Source APK selected. Tap Prepare to continue.</string>
+  <string name="install_success">Installation finished</string>
+  <string name="install_failed">Installation failed: %1$s</string>
+  <string name="install_geode_next">Game installed. Install its Geode launcher next?</string>
+  <string name="install">Install</string>
+  <string name="later">Later</string>
+  <string name="refresh">Refresh</string>
+  <string name="check_update">Check for launcher update</string>
+  <string name="sort">Sort instances</string>
+  <string name="import_instances">Import instances</string>
+  <string name="export_instances">Export instances</string>
+  <string name="export_key">Back up signing key</string>
+  <string name="restore_key_warning">Restoring a different signing key prevents updates to existing clones. Restore only a backup belonging to those clones.</string>
+  <string name="continue_action">Continue</string>
+  <string name="theme">Appearance</string>
+  <string name="storage">Storage</string>
+  <string name="diagnostics">Copy diagnostics</string>
+  <string name="diagnostics_copied">Diagnostics copied</string>
+  <string name="no_cache">No server cache yet · tap to refresh</string>
+  <string name="last_refresh">Last refresh: %1$s</string>
+  <string name="refresh_failed">Could not refresh; keeping saved entries. %1$s</string>
+  <string name="preparing">Preparing…</string>
+  <string name="install_launcher_update">Install downloaded launcher update</string>
+  <string name="original_required">Install your original Geometry Dash copy, or choose “Clone a local APK”.</string>
+  <string name="queued">Queued</string>
+  <string name="wait_operation">Wait for the current operation to finish, or cancel it.</string>
+  <string name="installer_opening">Opening Android installer…</string>
+  <string name="launch">Launch</string>
+  <string name="settings">Settings</string>
+  <string name="install_prepared">Install prepared game APKs</string>
+  <string name="install_geode">Install Geode launcher</string>
+  <string name="prepare_again">Prepare / update APKs</string>
+  <string name="select_source">Select source APK</string>
+  <string name="edit">Edit</string>
+  <string name="favorite">Toggle favourite</string>
+  <string name="uninstall">Uninstall app</string>
+  <string name="remove">Remove entry</string>
+  <string name="delete_downloads">Delete prepared APKs</string>
+  <string name="local_source_only">Select “Clone a local APK” when creating or editing this entry.</string>
+  <string name="server_readonly">Server entries are managed by the server.</string>
+  <string name="remove_warning">Remove this shortcut from the list? Installed apps and prepared APKs stay on your device.</string>
+  <string name="removed">Entry removed</string>
+  <string name="undo">Undo</string>
+  <string name="create">Create instance</string>
+  <string name="save">Save changes</string>
+  <string name="name_required">Enter a name</string>
+  <string name="search_apps">Search app names or packages</string>
+  <string name="pick_app">Choose an installed app</string>
+  <string name="up_to_date">Launcher is up to date</string>
+  <string name="update_available">Launcher update available</string>
+  <string name="download">Download</string>
+  <string name="storage_summary">Prepared APKs use %1$d MiB. Deleting them does not uninstall apps or remove your signing key.</string>
+  <string name="password_hint">Password · at least 12 characters</string>
+  <string name="shortcut">Shortcut</string>
+  <string name="vanilla">Vanilla</string>
+  <string name="more_actions">More actions</string>
+  <string name="not_installed">Not installed</string>
+  <string name="retry">Retry</string>
+  <string name="prepare">Prepare APKs</string>
+  <string name="search_instances">Search instances</string>
+  <string name="empty_title">No matching instances</string>
+  <string name="empty_help">Pull to refresh, or tap + to create an instance</string>
+  <string name="add_custom">Add custom instance</string>
+  <string name="create_title">Create or edit instance</string>
+  <string name="create_help">Clone your Geometry Dash copy, or add an installed app shortcut. Clones use a separate package and storage.</string>
+  <string name="instance_name">Instance name</string>
+  <string name="package_hint">Package name</string>
+  <string name="browse">Browse</string>
+  <string name="geode_label">Prepare a separate Geode launcher for this game</string>
+  <string name="advanced">Advanced options</string>
+  <string name="generate_package">Generate a unique 24-character package</string>
+  <string name="settings_hint">Settings activity · package/.Activity</string>
+  <string name="main_hint">Main activity · package/.Activity</string>
+  <string name="downloading">Preparing APKs…</string>
+  <string name="remove_custom">More actions</string>
+  <string name="settings_desc">Open settings</string>
+  <string name="uninstall_desc">Uninstall</string>
+  <string name="update_instance">Update available</string>
+  <string-array name="sort_modes">
+    <item>Custom order</item>
+    <item>Name</item>
+    <item>Installed first</item>
+  </string-array>
+  <string-array name="theme_modes">
+    <item>Follow device</item>
+    <item>Light</item>
+    <item>Dark</item>
+  </string-array>
+  <string-array name="instance_modes">
+    <item>Clone installed Geometry Dash</item>
+    <item>Shortcut to an installed app</item>
+    <item>Clone a local APK</item>
+  </string-array>
+  <string name="install_update">Install update</string>
+  <string name="export_recovery">Export recovery data</string>
+  <string name="recovery_notice">Some saved entries need repair. Their original data is available under Export recovery data.</string>
+  <string name="download_metrics">%1$d / %2$s MiB · %3$d KiB/s</string>
+  <string name="prepare_again_required">This entry has changed. Prepare its APKs again before installing.</string>
+  <string name="waiting_retry">Waiting to retry: %1$s</string>
+  <string name="update_failed">Launcher update failed</string>
+  <string name="invalid_package">Enter a valid package, such as ir.gd.myinstance</string>
+  <string name="package_length">Game clones require exactly 24 characters</string>
+  <string name="favorite_name">★ %1$s</string>
 </resources>

@@ -23,7 +23,7 @@
         <!-- Status/nav bars follow the surface, not the primary brand color -->
         <item name="android:statusBarColor">@color/surface</item>
         <item name="android:navigationBarColor">@color/surface</item>
-        <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
+        <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
 
         <!-- Rounded corners app-wide for cards/buttons/dialogs -->

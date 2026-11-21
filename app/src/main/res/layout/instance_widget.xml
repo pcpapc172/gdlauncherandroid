@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widgetCard" android:layout_width="match_parent"
+    android:layout_height="match_parent" android:gravity="center_vertical"
+    android:orientation="horizontal" android:padding="12dp"
+    android:background="@drawable/bg_instance_widget">
+    <ImageView android:layout_width="36dp" android:layout_height="36dp"
+        android:src="@mipmap/ic_launcher" android:importantForAccessibility="no" />
+    <TextView android:id="@+id/widgetTitle" android:layout_width="0dp"
+        android:layout_height="wrap_content" android:layout_weight="1"
+        android:layout_marginStart="8dp" android:textSize="14sp"
+        android:textStyle="bold" android:ellipsize="end" android:maxLines="2"
+        android:textColor="@color/widget_foreground" />
+</LinearLayout>

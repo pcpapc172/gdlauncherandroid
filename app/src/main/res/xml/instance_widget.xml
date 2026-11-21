@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/instance_widget"
+    android:previewLayout="@layout/instance_widget"
+    android:configure="ir.pcpapc172.gdlauncher1.InstanceWidgetConfiguration"
+    android:minWidth="110dp" android:minHeight="48dp"
+    android:targetCellWidth="2" android:targetCellHeight="1"
+    android:resizeMode="horizontal" android:widgetCategory="home_screen" />

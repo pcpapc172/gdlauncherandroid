@@ -32,7 +32,8 @@ import java.io.File
 import java.text.DateFormat
 import java.util.UUID
 import kotlinx.coroutines.*
-import org.json.JSONObject
+import com.google.android.material.color.DynamicColors
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
@@ -45,6 +46,7 @@ class MainActivity : AppCompatActivity() {
     private var snapshotJob: Job? = null
     private var operations = mapOf<String, WorkInfo>()
     private var refreshJob: Job? = null
+    private var launcherCheck: Job? = null
     private var query = ""
     private var sort = 0
     private var pendingInstall: Pair<String, String>? = null
@@ -179,6 +181,7 @@ class MainActivity : AppCompatActivity() {
             prefs.getInt("theme", AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
         )
         super.onCreate(savedInstanceState)
+        DynamicColors.applyToActivityIfAvailable(this)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         setSupportActionBar(binding.toolbar)
@@ -267,6 +270,8 @@ class MainActivity : AppCompatActivity() {
         }
         render()
         refresh()
+        if (savedInstanceState == null && prefs.getBoolean("auto_launcher_update", true))
+            checkUpdate(manual = false)
         handleInstallResult(intent)
         if (store.hasRecovery()) message(getString(R.string.recovery_notice))
         savedInstanceState?.getString("editorDraft")?.let { json ->
@@ -297,6 +302,8 @@ class MainActivity : AppCompatActivity() {
                     main = view.findViewById<TextInputEditText>(R.id.etMain).text.toString(),
                     settings =
                         view.findViewById<TextInputEditText>(R.id.etSettings).text.toString(),
+                    updateManifest =
+                        view.findViewById<TextInputEditText>(R.id.etUpdateManifest).text.toString(),
                     geodeUrl =
                         if (view.findViewById<CheckBox>(R.id.cbUseGeode).isChecked) "latest"
                         else null,
@@ -393,7 +400,7 @@ class MainActivity : AppCompatActivity() {
                             apks(instance.id, "geode").isNotEmpty() &&
                                 !installed(instance.geodePackage)
                         )
-                            AlertDialog.Builder(this)
+                            MaterialAlertDialogBuilder(this)
                                 .setMessage(R.string.install_geode_next)
                                 .setPositiveButton(R.string.install) { _, _ ->
                                     installGroup(instance.id, "geode")
@@ -410,6 +417,8 @@ class MainActivity : AppCompatActivity() {
         listOf(
                 R.string.refresh,
                 R.string.check_update,
+                R.string.auto_launcher_update,
+                R.string.download_notifications,
                 R.string.sort,
                 R.string.import_instances,
                 R.string.export_instances,
@@ -420,7 +429,14 @@ class MainActivity : AppCompatActivity() {
                 R.string.export_recovery,
                 R.string.diagnostics,
             )
-            .forEach { menu.add(0, it, 0, it) }
+            .forEach { resource ->
+                menu.add(0, resource, 0, resource).apply {
+                    if (resource == R.string.auto_launcher_update) {
+                        isCheckable = true
+                        isChecked = prefs.getBoolean("auto_launcher_update", true)
+                    }
+                }
+            }
         return true
     }
 
@@ -428,8 +444,19 @@ class MainActivity : AppCompatActivity() {
         when (item.itemId) {
             R.string.refresh -> refresh()
             R.string.check_update -> checkUpdate()
+            R.string.download_notifications -> startActivity(
+                if (Build.VERSION.SDK_INT >= 26) Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+            )
+            R.string.auto_launcher_update -> {
+                val enabled = !prefs.getBoolean("auto_launcher_update", true)
+                prefs.edit().putBoolean("auto_launcher_update", enabled).apply()
+                item.isChecked = enabled
+                if (enabled) checkUpdate(manual = false)
+            }
             R.string.sort ->
-                AlertDialog.Builder(this)
+                MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.sort)
                     .setSingleChoiceItems(resources.getStringArray(R.array.sort_modes), sort) {
                         dialog,
@@ -462,7 +489,7 @@ class MainActivity : AppCompatActivity() {
                 if (operations.values.any { !it.state.isFinished })
                     message(getString(R.string.wait_operation))
                 else
-                    AlertDialog.Builder(this)
+                    MaterialAlertDialogBuilder(this)
                         .setMessage(R.string.restore_key_warning)
                         .setPositiveButton(R.string.continue_action) { _, _ ->
                             importKey = true
@@ -473,7 +500,7 @@ class MainActivity : AppCompatActivity() {
                         .setNegativeButton(R.string.cancel, null)
                         .show()
             R.string.theme ->
-                AlertDialog.Builder(this)
+                MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.theme)
                     .setItems(R.array.theme_modes) { _, which ->
                         val mode =
@@ -517,7 +544,7 @@ class MainActivity : AppCompatActivity() {
                         withContext(Dispatchers.IO) {
                             val json =
                                 Network.text(
-                                    "https://api.pcpapc172.ir/archive/android_instances.json"
+                                    UpdateCatalog.INSTANCES_URL
                                 )
                             val array = com.google.gson.JsonParser.parseString(json).asJsonArray
                             require(array.size() <= 500) { "Too many server entries" }
@@ -562,6 +589,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     server = valid
                     store.cache(valid)
+                    InstanceWidget.refresh(this@MainActivity)
                     refreshInstalled()
                 } catch (e: CancellationException) {
                     throw e
@@ -598,6 +626,7 @@ class MainActivity : AppCompatActivity() {
                     ready(it.id),
                     isFavorite(it),
                     installedVersion(it.pkg),
+                    DownloadControl.paused(this, it.id),
                 )
             }
         )
@@ -612,16 +641,29 @@ class MainActivity : AppCompatActivity() {
                         .format(java.util.Date(store.lastRefresh())),
                 )
         binding.status.setOnClickListener { refresh() }
-        val update = operations["launcher_update"]
-        binding.updateReady.visibility =
-            if (ready("launcher_update") || update != null && !update.state.isFinished) View.VISIBLE
-            else View.GONE
-        binding.updateReady.isEnabled =
-            ready("launcher_update") && update?.state?.isFinished != false
-        binding.updateReady.text =
-            if (update != null && !update.state.isFinished) getString(R.string.preparing)
-            else getString(R.string.install_launcher_update)
-        binding.updateReady.setOnClickListener { installGroup("launcher_update", "game") }
+        val update = operations[UpdateCatalog.LAUNCHER]
+        val active = update?.state?.isFinished == false
+        val paused = DownloadControl.paused(this, UpdateCatalog.LAUNCHER)
+        val ready = ready(UpdateCatalog.LAUNCHER)
+        binding.updateReady.visibility = if (ready || active || paused) View.VISIBLE else View.GONE
+        binding.updateReady.text = getString(when {
+            active || paused -> R.string.download_controls
+            else -> R.string.install_launcher_update
+        })
+        binding.updateReady.setOnClickListener {
+            if (active || paused) downloadActions(UpdateCatalog.LAUNCHER, update)
+            else installGroup(UpdateCatalog.LAUNCHER, "game")
+        }
+        binding.launcherDownloadStatus.visibility = if (active || paused) View.VISIBLE else View.GONE
+        binding.launcherDownloadProgress.visibility = if (active) View.VISIBLE else View.GONE
+        binding.launcherDownloadStatus.text = when {
+            active && paused -> getString(R.string.pausing_download)
+            paused -> getString(R.string.download_paused)
+            else -> update?.progress?.getString("status") ?: getString(R.string.queued)
+        }
+        val percent = update?.progress?.getInt("percent", -1) ?: -1
+        binding.launcherDownloadProgress.isIndeterminate = percent < 0
+        if (percent >= 0) binding.launcherDownloadProgress.setProgressCompat(percent, true)
         if (
             update?.state == WorkInfo.State.FAILED &&
                 prefs.getString("last_update_error", null) != update.id.toString()
@@ -658,26 +700,26 @@ class MainActivity : AppCompatActivity() {
             apks(id, "game").isNotEmpty() && preparedCode(id) > BuildConfig.VERSION_CODE
         else (custom + server).firstOrNull { it.id == id }?.let(store::prepared) ?: false
 
-    private fun prepare(i: Instance) {
+    private fun prepare(i: Instance, update: Boolean = false) {
         try {
-            if (i.mode == "apk" && !store.source(i.id).exists()) {
+            if (operations[i.id]?.state?.isFinished == false) return
+            if (DownloadControl.paused(this, i.id)) {
+                downloadActions(i.id, operations[i.id])
+                return
+            }
+            if (!update && i.updateManifest.isNullOrBlank() && i.mode == "apk" && !store.source(i.id).exists()) {
                 sourceFor = i.id
                 chooseApk.launch(
                     arrayOf("application/vnd.android.package-archive", "application/octet-stream")
                 )
                 return
             }
-            if (i.mode == "clone" && i.url.isNullOrBlank() && !installed(GAME_PACKAGE)) {
+            if (!update && i.updateManifest.isNullOrBlank() && i.mode == "clone" && i.url.isNullOrBlank() && !installed(GAME_PACKAGE)) {
                 message(getString(R.string.original_required))
                 return
             }
-            if (
-                Build.VERSION.SDK_INT >= 33 &&
-                    checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-                        PackageManager.PERMISSION_GRANTED
-            )
-                notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-            InstanceWorker.enqueue(this, i)
+            askForDownloadNotifications()
+            InstanceWorker.enqueue(this, i, update)
             message(getString(R.string.queued))
         } catch (e: Exception) {
             error(e)
@@ -732,38 +774,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun launch(i: Instance, settings: Boolean = false) {
+        if (!settings) {
+            runCatching { launchInstance(i) }.onFailure(::error)
+            return
+        }
         try {
-            val target = if (i.usesGeode) i.geodePackage else i.pkg
-            val component = if (settings) i.settings else i.main
-            val explicit =
-                component?.takeIf { it.isNotBlank() }?.let { ComponentName.unflattenFromString(it) }
-            val intent =
-                when {
-                    settings && i.usesGeode && explicit == null ->
-                        Intent()
-                            .setComponent(
-                                ComponentName(
-                                    i.geodePackage,
-                                    "com.geode.launcher.preferences.SettingsActivity",
-                                )
-                            )
-                    explicit != null -> Intent(Intent.ACTION_MAIN).setComponent(explicit)
-                    settings ->
-                        Intent(
-                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                            Uri.parse("package:${i.pkg}"),
-                        )
-                    else -> packageManager.getLaunchIntentForPackage(target)
-                }
-            if (intent == null) error("App has no launcher activity")
-            try {
-                startActivity(intent)
-            } catch (e: Exception) {
-                if (!settings && explicit != null) {
-                    val fallback = packageManager.getLaunchIntentForPackage(target) ?: throw e
-                    startActivity(fallback)
-                } else throw e
+            val explicit = i.settings?.let(ComponentName::unflattenFromString)
+            val intent = when {
+                explicit != null -> Intent(Intent.ACTION_MAIN).setComponent(explicit)
+                i.usesGeode -> Intent().setComponent(ComponentName(
+                    i.geodePackage, "com.geode.launcher.preferences.SettingsActivity"
+                ))
+                else -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${i.pkg}"))
             }
+            startActivity(intent)
         } catch (e: Exception) {
             error(e)
         }
@@ -777,6 +801,8 @@ class MainActivity : AppCompatActivity() {
                 add(R.string.install_prepared)
                 if (i.usesGeode) add(R.string.install_geode)
             }
+            if (installed(i.pkg) && i.canUpdate) add(R.string.check_instance_update)
+            if (InstanceWidget.canPin(this@MainActivity)) add(R.string.add_instance_widget)
             if (i.mode != "shortcut") add(R.string.prepare_again)
             if (i.mode == "apk") add(R.string.select_source)
             if (i.isCustom) add(R.string.edit)
@@ -785,7 +811,7 @@ class MainActivity : AppCompatActivity() {
             if (i.isCustom) add(R.string.remove)
             if (store.root(i.id).exists()) add(R.string.delete_downloads)
         }
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle(i.name)
             .setItems(labels.map(::getString).toTypedArray()) { _, n ->
                 when (labels[n]) {
@@ -793,6 +819,8 @@ class MainActivity : AppCompatActivity() {
                     R.string.settings -> launch(i, true)
                     R.string.install_prepared -> installGroup(i.id, "game")
                     R.string.install_geode -> installGroup(i.id, "geode")
+                    R.string.check_instance_update -> prepare(i, update = true)
+                    R.string.add_instance_widget -> runCatching { InstanceWidget.pin(this, i.id) }.onFailure(::error)
                     R.string.prepare_again -> prepare(i)
                     R.string.select_source -> {
                         if (i.mode == "apk") {
@@ -818,7 +846,7 @@ class MainActivity : AppCompatActivity() {
                         render()
                     }
                     R.string.uninstall ->
-                        AlertDialog.Builder(this)
+                        MaterialAlertDialogBuilder(this)
                             .setTitle(R.string.uninstall)
                             .setItems(
                                 if (i.usesGeode) arrayOf(i.pkg, i.geodePackage) else arrayOf(i.pkg)
@@ -855,19 +883,25 @@ class MainActivity : AppCompatActivity() {
             message(getString(R.string.server_readonly))
             return
         }
-        AlertDialog.Builder(this)
+        if (operations[i.id]?.state?.isFinished == false || DownloadControl.paused(this, i.id)) {
+            downloadActions(i.id, operations[i.id])
+            return
+        }
+        MaterialAlertDialogBuilder(this)
             .setMessage(R.string.remove_warning)
             .setPositiveButton(R.string.remove) { _, _ ->
                 val index = custom.indexOfFirst { it.id == i.id }
                 if (index >= 0) {
                     custom = custom.filterNot { it.id == i.id }
                     store.save(custom)
+                    InstanceWidget.refresh(this)
                     render()
                     Snackbar.make(binding.root, R.string.removed, Snackbar.LENGTH_LONG)
                         .setAction(R.string.undo) {
                             custom =
                                 custom.toMutableList().apply { add(index.coerceAtMost(size), i) }
                             store.save(custom)
+                            InstanceWidget.refresh(this)
                             render()
                         }
                         .show()
@@ -885,6 +919,8 @@ class MainActivity : AppCompatActivity() {
         val advanced = view.findViewById<TextInputEditText>(R.id.etPackageAdv)
         val settings = view.findViewById<TextInputEditText>(R.id.etSettings)
         val main = view.findViewById<TextInputEditText>(R.id.etMain)
+        val updateManifest = view.findViewById<TextInputEditText>(R.id.etUpdateManifest)
+        updateManifest.setText(initial?.updateManifest.orEmpty())
         val geode = view.findViewById<CheckBox>(R.id.cbUseGeode)
         val layout = view.findViewById<LinearLayout>(R.id.layoutAdvanced)
         val mode = view.findViewById<Spinner>(R.id.instanceMode)
@@ -967,7 +1003,7 @@ class MainActivity : AppCompatActivity() {
         editorView = view
         editingId = existing?.id
         val dialog =
-            AlertDialog.Builder(this)
+            MaterialAlertDialogBuilder(this)
                 .setView(view)
                 .setNegativeButton(R.string.cancel, null)
                 .create()
@@ -993,6 +1029,8 @@ class MainActivity : AppCompatActivity() {
                             sha256 = existing?.sha256,
                             signerSha256 = existing?.signerSha256,
                             versionCode = existing?.versionCode,
+                            updateManifest = updateManifest.text.toString().trim()
+                                .takeIf { newMode != "shortcut" && it.isNotBlank() },
                             settings = settings.text.toString().trim().ifBlank { null },
                             main = main.text.toString().trim().ifBlank { null },
                             geodeUrl =
@@ -1004,7 +1042,8 @@ class MainActivity : AppCompatActivity() {
                         "This package is already in the list"
                     }
                     if (existing != null)
-                        require(operations[id]?.state?.isFinished != false) {
+                        require(operations[id]?.state?.isFinished != false &&
+                            !DownloadControl.paused(this@MainActivity, id)) {
                             "Cancel the active operation before editing"
                         }
                     if (existing != null && existing != i) {
@@ -1014,6 +1053,7 @@ class MainActivity : AppCompatActivity() {
                         if (existing == null) listOf(i) + custom
                         else custom.map { if (it.id == id) i else it }
                     store.save(custom)
+                    InstanceWidget.refresh(this@MainActivity)
                     render()
                     dialog.dismiss()
                     if (i.mode == "apk" && !store.source(id).exists()) {
@@ -1116,7 +1156,7 @@ class MainActivity : AppCompatActivity() {
                 }
             )
             val dialog =
-                AlertDialog.Builder(this@MainActivity)
+                MaterialAlertDialogBuilder(this@MainActivity)
                     .setTitle(R.string.pick_app)
                     .setView(layout)
                     .setNegativeButton(R.string.cancel, null)
@@ -1130,50 +1170,78 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun checkUpdate() {
-        background {
-            val update =
-                withContext(Dispatchers.IO) {
-                    JSONObject(
-                        Network.text("https://api.pcpapc172.ir/archive/latestandroidlauncher.json")
-                    )
-                }
-            if (update.getLong("version_code") <= BuildConfig.VERSION_CODE) {
-                message(getString(R.string.up_to_date))
-                return@background
-            }
-            val url = update.getString("download_url")
-            require(Validation.https(url)) { "Update URL must use HTTPS" }
-            val i =
-                Instance(
-                    "launcher_update",
-                    getString(R.string.app_name),
-                    packageName,
-                    url,
-                    sha256 = update.optString("sha256").ifBlank { null },
-                    mode = "clone",
-                )
-            AlertDialog.Builder(this@MainActivity)
-                .setTitle(R.string.update_available)
-                .setMessage(
-                    update.optString("version_name") + "\n\n" + update.optString("changelog")
-                )
-                .setPositiveButton(R.string.download) { _, _ ->
-                    runCatching { InstanceWorker.enqueue(this@MainActivity, i) }.onFailure(::error)
-                }
-                .setNegativeButton(R.string.later, null)
-                .show()
-            // User consent remains required; server flags cannot lock users out of their launcher.
+    private fun askForDownloadNotifications() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            !prefs.getBoolean("asked_download_notifications", false)) {
+            prefs.edit().putBoolean("asked_download_notifications", true).apply()
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    private fun checkUpdate(manual: Boolean = true) {
+        if (launcherCheck?.isActive == true) return
+        val id = UpdateCatalog.LAUNCHER
+        if (ready(id) || DownloadControl.paused(this, id) ||
+            operations[id]?.state?.isFinished == false) {
+            if (manual) downloadActions(id, operations[id])
+            return
+        }
+        launcherCheck = lifecycleScope.launch {
+            try {
+                val source = Instance(id, getString(R.string.app_name), packageName, isCustom = false)
+                val update = withContext(Dispatchers.IO) { UpdateCatalog.read(UpdateCatalog.LAUNCHER_URL, source) }
+                if ((update.versionCode ?: 0) <= BuildConfig.VERSION_CODE) {
+                    if (manual) message(getString(R.string.up_to_date))
+                    return@launch
+                }
+                if (manual || prefs.getBoolean("auto_launcher_update", true)) {
+                    if (manual) askForDownloadNotifications()
+                    if (manual || !DownloadControl.wasLauncherUpdateCancelled(this@MainActivity, update.versionCode))
+                        InstanceWorker.enqueue(this@MainActivity, update, update = true)
+                    if (manual) message(getString(R.string.queued))
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (manual) error(e) else android.util.Log.w("GDLauncher", "Launcher update check failed", e)
+            }
+        }
+    }
+
+    private fun downloadActions(id: String, work: WorkInfo?) {
+        val active = work?.state?.isFinished == false
+        val paused = DownloadControl.paused(this, id)
+        val labels = buildList {
+            if (paused && !active) add(R.string.resume_download)
+            if (!paused && active && work?.tags?.contains("download") == true) add(R.string.pause_download)
+            if (active || paused) add(R.string.cancel_download)
+            if (!active && !paused && id == UpdateCatalog.LAUNCHER && ready(id))
+                add(R.string.install_launcher_update)
+        }
+        if (labels.isEmpty()) return
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.download_controls)
+            .setItems(labels.map(::getString).toTypedArray()) { _, which ->
+                when (labels[which]) {
+                    R.string.resume_download -> runCatching { DownloadControl.resume(this, id) }.onFailure(::error)
+                    R.string.pause_download -> DownloadControl.stop(this, id, pause = true)
+                    R.string.cancel_download -> DownloadControl.stop(this, id, pause = false)
+                    R.string.install_launcher_update -> installGroup(id, "game")
+                }
+                render()
+            }.show()
     }
 
     private fun storage() {
         background {
             val size =
                 withContext(Dispatchers.IO) {
-                    File(filesDir, "apks").walkTopDown().filter { it.isFile }.sumOf { it.length() }
+                    listOf("apks", "staging", "downloads").sumOf { folder ->
+                        File(filesDir, folder).walkTopDown().filter { it.isFile }.sumOf { it.length() }
+                    }
                 }
-            AlertDialog.Builder(this@MainActivity)
+            MaterialAlertDialogBuilder(this@MainActivity)
                 .setTitle(R.string.storage)
                 .setMessage(getString(R.string.storage_summary, size / 1024 / 1024))
                 .setPositiveButton(R.string.delete_downloads) { _, _ ->
@@ -1182,8 +1250,10 @@ class MainActivity : AppCompatActivity() {
                     else
                         background {
                             withContext(Dispatchers.IO) {
+                                DownloadControl.clearPaused(this@MainActivity)
                                 File(filesDir, "apks").deleteRecursively()
                                 File(filesDir, "staging").deleteRecursively()
+                                File(filesDir, "downloads").deleteRecursively()
                             }
                             render()
                         }
@@ -1202,7 +1272,7 @@ class MainActivity : AppCompatActivity() {
                 setHint(R.string.password_hint)
             }
         val dialog =
-            AlertDialog.Builder(this)
+            MaterialAlertDialogBuilder(this)
                 .setTitle(title)
                 .setView(field)
                 .setPositiveButton(R.string.continue_action, null)
@@ -1248,6 +1318,7 @@ class MainActivity : AppCompatActivity() {
         val ready: Boolean,
         val favorite: Boolean,
         val version: String?,
+        val paused: Boolean,
     )
 
     inner class Rows :
@@ -1266,7 +1337,7 @@ class MainActivity : AppCompatActivity() {
             val uninstall: ImageButton = view.findViewById(R.id.btnUninstall)
             val more: ImageButton = view.findViewById(R.id.btnDeleteCustom)
             val progress: LinearLayout = view.findViewById(R.id.layoutProgress)
-            val bar: ProgressBar = view.findViewById(R.id.progressBar)
+            val bar: com.google.android.material.progressindicator.LinearProgressIndicator = view.findViewById(R.id.progressBar)
             val percent: TextView = view.findViewById(R.id.tvPercentage)
             val icon: ImageView = view.findViewById(R.id.appIcon)
         }
@@ -1292,21 +1363,23 @@ class MainActivity : AppCompatActivity() {
                     )
             )
             h.progress.visibility =
-                if (active || work?.state == WorkInfo.State.FAILED) View.VISIBLE else View.GONE
+                if (active || row.paused || work?.state == WorkInfo.State.FAILED) View.VISIBLE else View.GONE
             val percent = work?.progress?.getInt("percent", -1) ?: -1
+            h.bar.visibility = if (active && !row.paused) View.VISIBLE else View.GONE
             h.bar.isIndeterminate = percent < 0
-            h.bar.progress = percent.coerceAtLeast(0)
+            if (percent >= 0) h.bar.setProgressCompat(percent, false)
             h.percent.text =
-                if (work?.state == WorkInfo.State.FAILED) work.outputData.getString("error")
-                else work?.progress?.getString("status") ?: getString(R.string.queued)
+                when {
+                    row.paused && active -> getString(R.string.pausing_download)
+                    row.paused -> getString(R.string.download_paused)
+                    work?.state == WorkInfo.State.FAILED -> work.outputData.getString("error")
+                    else -> work?.progress?.getString("status") ?: getString(R.string.queued)
+                }
             h.action.isEnabled = true
             when {
-                active -> {
-                    h.action.setText(R.string.cancel)
-                    h.action.setOnClickListener {
-                        WorkManager.getInstance(this@MainActivity)
-                            .cancelUniqueWork(InstanceWorker.name(i.id))
-                    }
+                active || row.paused -> {
+                    h.action.setText(R.string.download_controls)
+                    h.action.setOnClickListener { downloadActions(i.id, work) }
                 }
                 row.installed &&
                     i.usesGeode &&
@@ -1316,11 +1389,11 @@ class MainActivity : AppCompatActivity() {
                     h.action.setOnClickListener { installGroup(i.id, "geode") }
                 }
                 row.installed &&
-                    i.versionCode != null &&
+                    i.canUpdate && i.versionCode != null &&
                     installedCode(i.pkg) < i.versionCode &&
-                    !row.ready -> {
+                    (!row.ready || preparedCode(i.id) < i.versionCode) -> {
                     h.action.setText(R.string.update_instance)
-                    h.action.setOnClickListener { prepare(i) }
+                    h.action.setOnClickListener { prepare(i, update = true) }
                 }
                 row.installed && row.ready && preparedCode(i.id) > installedCode(i.pkg) -> {
                     h.action.setText(R.string.install_update)

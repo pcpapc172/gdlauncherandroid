@@ -1,0 +1,4 @@
+<resources>
+    <color name="widget_background">@color/brand_primary_container</color>
+    <color name="widget_foreground">@color/brand_on_primary_container</color>
+</resources>

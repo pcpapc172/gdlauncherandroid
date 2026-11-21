@@ -27,6 +27,14 @@
       <com.google.android.material.textfield.TextInputLayout style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="12dp" android:hint="@string/main_hint">
         <com.google.android.material.textfield.TextInputEditText android:id="@+id/etMain" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:fontFamily="monospace" android:singleLine="true" />
       </com.google.android.material.textfield.TextInputLayout>
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="@string/update_manifest">
+          <com.google.android.material.textfield.TextInputEditText
+              android:id="@+id/etUpdateManifest" android:layout_width="match_parent"
+              android:layout_height="wrap_content" android:inputType="textUri"
+              android:maxLength="2048" android:singleLine="true" />
+        </com.google.android.material.textfield.TextInputLayout>
     </LinearLayout>
     <Button android:id="@+id/btnCreate" android:layout_width="match_parent" android:layout_height="52dp" android:text="@string/create" android:layout_marginTop="12dp" android:layout_marginBottom="12dp" />
   </LinearLayout>

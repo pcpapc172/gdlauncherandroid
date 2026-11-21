@@ -24,10 +24,15 @@ data class Instance(
     val favorite: Boolean = false,
     @SerializedName("version_code") val versionCode: Long? = null,
     val sha256: String? = null,
+    @SerializedName("update_manifest") val updateManifest: String? = null,
     @SerializedName("signer_sha256") val signerSha256: String? = null,
 ) {
     val geodePackage: String
         get() = "gd.g" + hash(pkg).take(14)
+
+    val canUpdate: Boolean
+        get() = mode != "shortcut" && (!updateManifest.isNullOrBlank() ||
+            (versionCode != null && !url.isNullOrBlank() && !sha256.isNullOrBlank()))
 
     val usesGeode: Boolean
         get() = !geodeUrl.isNullOrBlank()
@@ -85,6 +90,10 @@ object Validation {
         require(i.version == null || i.version.length <= 100) { "Version label is too long" }
         require(i.url == null || i.url.length <= 2048) { "APK URL is too long" }
         require(i.geodeUrl == null || i.geodeUrl.length <= 2048) { "Geode URL is too long" }
+        require(i.updateManifest.isNullOrBlank() ||
+            (i.mode != "shortcut" && i.updateManifest.length <= 2048 && https(i.updateManifest))) {
+            "Update manifest must use HTTPS and belong to an installable instance"
+        }
         require(i.versionCode == null || i.versionCode > 0) { "Version code must be positive" }
         require(i.url.isNullOrBlank() || https(i.url)) { "APK URL must use HTTPS" }
         require(i.geodeUrl.isNullOrBlank() || i.geodeUrl == "latest" || https(i.geodeUrl)) {

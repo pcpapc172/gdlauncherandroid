@@ -19,7 +19,7 @@ jobs:
       - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
       - name: Install Android SDK packages
-        run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
       - name: Fetch pinned upstream Geode regression fixture
         run: |
           curl --fail --location --silent --show-error --retry 3 'https://github.com/geode-sdk/android-launcher/releases/download/1.8.0/geode-launcher-v1.8.0.apk' -o "$RUNNER_TEMP/geode-fixture.apk"
@@ -91,7 +91,32 @@ jobs:
         with:
           name: GDLauncher-release
           path: release-apk
+      - uses: actions/checkout@v4
+      - name: Generate launcher update manifest
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re
+
+          root = pathlib.Path("release-apk")
+          apk, = root.glob("*.apk")
+          source = pathlib.Path("app/build.gradle.kts").read_text()
+          version = re.search(r'versionName\s*=\s*"([^"]+)"', source).group(1)
+          code = int(re.search(r'versionCode\s*=\s*(\d+)', source).group(1))
+          repo, tag = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_REF_NAME"]
+          with apk.open("rb") as source_apk:
+              digest = hashlib.file_digest(source_apk, "sha256").hexdigest()
+          manifest = {
+              "version_code": code,
+              "version_name": version,
+              "download_url": f"https://github.com/{repo}/releases/download/{tag}/{apk.name}",
+              "sha256": digest,
+          }
+          (root / "latestandroidlauncher.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          PY
       - uses: softprops/action-gh-release@v2
         with:
-          files: release-apk/*.apk
+          files: |
+            release-apk/*.apk
+            release-apk/latestandroidlauncher.json
+          fail_on_unmatched_files: true
           generate_release_notes: true

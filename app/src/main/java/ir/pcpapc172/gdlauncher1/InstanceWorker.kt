@@ -7,6 +7,10 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Intent
+import android.app.PendingIntent
 import androidx.work.*
 import com.android.apksig.ApkVerifier
 import com.google.gson.Gson
@@ -17,7 +21,10 @@ import java.security.MessageDigest
 
 class InstanceWorker(context: Context, params: WorkerParameters) :
     CoroutineWorker(context, params) {
-    override suspend fun getForegroundInfo(): ForegroundInfo {
+    override suspend fun getForegroundInfo(): ForegroundInfo =
+        notificationInfo("Preparing download", -1)
+
+    private fun notificationInfo(status: String, percent: Int): ForegroundInfo {
         val manager =
             applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26)
@@ -33,6 +40,14 @@ class InstanceWorker(context: Context, params: WorkerParameters) :
                 .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setContentTitle(applicationContext.getString(R.string.operations))
                 .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setContentText(status.lineSequence().first())
+                .setProgress(100, percent.coerceAtLeast(0), percent < 0)
+                .apply {
+                    if (inputData.getBoolean("download", false))
+                        addAction(android.R.drawable.ic_media_pause,
+                            applicationContext.getString(R.string.pause_download), DownloadControl.command(applicationContext, inputData.getString("instance_id").orEmpty(), "pause_download"))
+                }
                 .setContentIntent(
                     android.app.PendingIntent.getActivity(
                         applicationContext,
@@ -45,7 +60,7 @@ class InstanceWorker(context: Context, params: WorkerParameters) :
                 .addAction(
                     android.R.drawable.ic_delete,
                     applicationContext.getString(R.string.cancel),
-                    WorkManager.getInstance(applicationContext).createCancelPendingIntent(id),
+                    DownloadControl.command(applicationContext, inputData.getString("instance_id").orEmpty(), "cancel_download"),
                 )
                 .build()
         return if (Build.VERSION.SDK_INT >= 29)
@@ -57,66 +72,96 @@ class InstanceWorker(context: Context, params: WorkerParameters) :
         else ForegroundInfo(id.hashCode(), notification)
     }
 
+    @SuppressLint("MissingPermission") // Android 13+ permission is checked before posting.
+    private fun notifyResult(instanceId: String, message: String, paused: Boolean = false) {
+        val context = applicationContext
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            return
+        val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val note = NotificationCompat.Builder(context, "operations")
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle(context.getString(R.string.operations))
+            .setContentText(message)
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .apply {
+                if (paused) {
+                    addAction(android.R.drawable.ic_media_play, context.getString(R.string.resume_download),
+                        DownloadControl.command(context, instanceId, "resume_download"))
+                    addAction(android.R.drawable.ic_delete, context.getString(R.string.cancel_download),
+                        DownloadControl.command(context, instanceId, "cancel_download"))
+                }
+            }
+            .build()
+        context.getSystemService(NotificationManager::class.java).notify("download:$instanceId", 1, note)
+    }
+
     override suspend fun doWork(): Result =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             var staging: File? = null
+            val instanceId = inputData.getString("instance_id").orEmpty()
+            fun stopped() = isStopped || DownloadControl.stopped(applicationContext, instanceId) != null
+            fun paused() = DownloadControl.paused(applicationContext, instanceId)
             try {
                 setForeground(getForegroundInfo())
-                val instance =
+                val original =
                     Gson()
                         .fromJson(
                             inputData.getString("instance") ?: error("Missing instance"),
                             Instance::class.java,
                         )
-                Validation.check(instance)
+                Validation.check(original)
+                if (stopped()) {
+                    if (paused()) notifyResult(instanceId, applicationContext.getString(R.string.download_paused), paused = true)
+                    return@withContext Result.success()
+                }
+                val updating = inputData.getBoolean("update", false) || original.id == UpdateCatalog.LAUNCHER
+                val instance = original.updateManifest?.takeIf { it.isNotBlank() && (updating || original.url.isNullOrBlank()) }
+                    ?.let { UpdateCatalog.read(it, original) } ?: original
+                if (updating) {
+                    require(instance.versionCode != null && !instance.sha256.isNullOrBlank() &&
+                        !instance.url.isNullOrBlank()) { "Update requires an APK, version code, and SHA-256" }
+                    if (instance.versionCode <= installedVersion(instance.pkg))
+                        return@withContext Result.success(workDataOf("status" to "Already up to date"))
+                }
                 val store = InstanceStore(applicationContext)
                 val root = store.root(instance.id)
+                val backup = File(root.parentFile, "${root.name}.previous")
+                if (backup.exists() && !root.exists())
+                    check(backup.renameTo(root)) { "Cannot restore previous APK output" }
                 staging = File(applicationContext.filesDir, "staging/$id").also { it.mkdirs() }
-                val work = staging!!
+                val work = staging
+                var lastNotification = 0L
                 fun status(text: String, percent: Int = -1) {
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (now - lastNotification >= 750 || percent == 100) {
+                        setForegroundAsync(notificationInfo(text, percent))
+                        lastNotification = now
+                    }
                     setProgressAsync(workDataOf("status" to text, "percent" to percent))
                 }
-                if (instance.id == "launcher_update") {
-                    val apk = File(work, "game/base.apk")
-                    status("Downloading launcher update")
-                    Network.download(instance.url!!, apk, instance.sha256, { isStopped }) {
-                        percent,
-                        bytes,
-                        total,
-                        speed ->
-                        status(
-                            "Downloading launcher update\n" +
-                                applicationContext.getString(
-                                    R.string.download_metrics,
-                                    bytes / 1024 / 1024,
-                                    if (total > 0) (total / 1024 / 1024).toString() else "?",
-                                    speed,
-                                ),
-                            percent,
-                        )
+                fun download(url: String, apk: File, sha256: String?, title: String) {
+                    status(title)
+                    val partial = DownloadControl.partial(applicationContext, instance.id, url, sha256)
+                    Network.download(url, apk, sha256, ::stopped, partial) { percent, bytes, total, speed ->
+                        status(title + "\n" + applicationContext.getString(
+                            R.string.download_metrics, bytes / 1024 / 1024,
+                            if (total > 0) (total / 1024 / 1024).toString() else "?", speed
+                        ), percent)
                     }
-                    verify(apk, applicationContext.packageName, instance.signerSha256)
-                    verifySameSigner(apk, applicationContext.packageName)
-                } else if (!instance.url.isNullOrBlank()) {
+                }
+                if (!instance.url.isNullOrBlank()) {
                     val apk = File(work, "game/base.apk")
-                    status("Downloading APK")
-                    Network.download(instance.url, apk, instance.sha256, { isStopped }) {
-                        percent,
-                        bytes,
-                        total,
-                        speed ->
-                        status(
-                            "Downloading APK\n" +
-                                applicationContext.getString(
-                                    R.string.download_metrics,
-                                    bytes / 1024 / 1024,
-                                    if (total > 0) (total / 1024 / 1024).toString() else "?",
-                                    speed,
-                                ),
-                            percent,
-                        )
-                    }
+                    val title = if (instance.id == UpdateCatalog.LAUNCHER) "Downloading launcher update"
+                        else if (updating) "Downloading instance update" else "Downloading APK"
+                    download(instance.url, apk, instance.sha256, title)
+                    status("Verifying APK")
                     verify(apk, instance.pkg, instance.signerSha256)
+                    if (installedVersion(instance.pkg) > 0) verifySameSigner(apk, instance.pkg)
+                    if (instance.versionCode != null)
+                        require(archiveVersion(apk) == instance.versionCode) { "APK version does not match the catalog" }
                 } else {
                     val sources =
                         if (instance.mode == "apk") listOf(store.source(instance.id))
@@ -157,12 +202,16 @@ class InstanceWorker(context: Context, params: WorkerParameters) :
                             output,
                             instance.pkg,
                             instance.name,
-                            cancelled = { isStopped },
+                            cancelled = ::stopped,
                         )
                         verify(output, instance.pkg, null)
                     }
                 }
-                if (instance.usesGeode) {
+                if (updating && instance.usesGeode && File(root, "geode").isDirectory) {
+                    check(File(root, "geode").copyRecursively(File(work, "geode"))) {
+                        "Could not keep the prepared Geode launcher"
+                    }
+                } else if (instance.usesGeode && (!updating || installedVersion(instance.geodePackage) == 0L)) {
                     status("Finding latest Geode launcher")
                     val release =
                         if (instance.geodeUrl == "latest")
@@ -180,22 +229,7 @@ class InstanceWorker(context: Context, params: WorkerParameters) :
                             )
                         else instance.geodeUrl!! to null
                     val source = File(work, "geode-source.apk")
-                    Network.download(release.first, source, release.second, { isStopped }) {
-                        percent,
-                        bytes,
-                        total,
-                        speed ->
-                        status(
-                            "Downloading Geode launcher\n" +
-                                applicationContext.getString(
-                                    R.string.download_metrics,
-                                    bytes / 1024 / 1024,
-                                    if (total > 0) (total / 1024 / 1024).toString() else "?",
-                                    speed,
-                                ),
-                            percent,
-                        )
-                    }
+                    download(release.first, source, release.second, "Downloading Geode launcher")
                     verify(source, "com.geode.launcher", null)
                     status("Retargeting Geode launcher")
                     val output = File(work, "geode/base.apk")
@@ -206,27 +240,17 @@ class InstanceWorker(context: Context, params: WorkerParameters) :
                             instance.pkg,
                             "${instance.name} · Geode",
                             instance.geodePackage,
-                            { isStopped },
+                            ::stopped,
                         )
                     verify(output, instance.geodePackage, null)
                     source.delete()
                 }
-                check(!isStopped) { "Cancelled" }
-                File(work, "recipe.txt").writeText(store.recipe(instance))
-                @Suppress("DEPRECATION")
-                val preparedInfo =
-                    applicationContext.packageManager.getPackageArchiveInfo(
-                        File(work, "game/base.apk").path,
-                        0,
-                    )
-                val preparedVersion =
-                    if (Build.VERSION.SDK_INT >= 28) preparedInfo?.longVersionCode
-                    else preparedInfo?.versionCode?.toLong()
-                File(work, "version.txt").writeText((preparedVersion ?: 0L).toString())
+                check(!stopped()) { "Cancelled" }
+                File(work, "recipe.txt").writeText(store.recipe(original))
+                File(work, "version.txt").writeText(archiveVersion(File(work, "game/base.apk")).toString())
                 // Publish only complete, verified output. Keep previous output intact on any
                 // earlier failure.
-                val backup = File(root.parentFile, "${root.name}.previous")
-                backup.deleteRecursively()
+                check(backup.deleteRecursively()) { "Cannot clear previous APK output" }
                 root.parentFile!!.mkdirs()
                 if (root.exists()) check(root.renameTo(backup)) { "Cannot replace previous output" }
                 if (!work.renameTo(root)) {
@@ -234,11 +258,18 @@ class InstanceWorker(context: Context, params: WorkerParameters) :
                     error("Cannot publish APK output")
                 }
                 backup.deleteRecursively()
+                DownloadControl.directory(applicationContext, instance.id).deleteRecursively()
+                if (inputData.getBoolean("download", false))
+                    notifyResult(instanceId, applicationContext.getString(R.string.download_ready, original.name))
                 Result.success(workDataOf("status" to "Ready to install"))
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (e is IOException && runAttemptCount < 2 && !isStopped) {
+                if (paused()) {
+                    notifyResult(instanceId, applicationContext.getString(R.string.download_paused), paused = true)
+                    Result.success(workDataOf("status" to "Paused"))
+                } else if (stopped()) Result.success()
+                else if (e is IOException && runAttemptCount < 2) {
                     setProgress(
                         workDataOf(
                             "status" to
@@ -256,6 +287,8 @@ class InstanceWorker(context: Context, params: WorkerParameters) :
                     )
             } finally {
                 staging?.deleteRecursively()
+                if (DownloadControl.stopped(applicationContext, instanceId) == "cancel")
+                    DownloadControl.directory(applicationContext, instanceId).deleteRecursively()
             }
         }
 
@@ -288,41 +321,58 @@ class InstanceWorker(context: Context, params: WorkerParameters) :
     }
 
     @Suppress("DEPRECATION")
+    private fun version(info: android.content.pm.PackageInfo) =
+        if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+
+    private fun archiveVersion(file: File) = version(
+        applicationContext.packageManager.getPackageArchiveInfo(file.path, 0)
+            ?: error("Could not read APK version")
+    )
+
+    private fun installedVersion(pkg: String) = try {
+        version(applicationContext.packageManager.getPackageInfo(pkg, 0))
+    } catch (_: PackageManager.NameNotFoundException) {
+        0L
+    }
+
+    @Suppress("DEPRECATION")
     private fun verifySameSigner(file: File, pkg: String) {
-        val flags = PackageManager.GET_SIGNATURES
-        val installed =
-            applicationContext.packageManager
-                .getPackageInfo(pkg, flags)
-                .signatures
-                .map { it.toByteArray().toList() }
-                .toSet()
-        val downloaded =
-            applicationContext.packageManager
-                .getPackageArchiveInfo(file.path, flags)!!
-                .signatures
-                .map { it.toByteArray().toList() }
-                .toSet()
-        require(installed == downloaded) {
-            "Update signing certificate differs from the installed launcher"
+        val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES
+            else PackageManager.GET_SIGNATURES
+        fun fingerprints(info: android.content.pm.PackageInfo) =
+            (if (Build.VERSION.SDK_INT >= 28) info.signingInfo?.apkContentsSigners
+            else info.signatures).orEmpty().map { it.toByteArray().toList() }.toSet()
+        val manager = applicationContext.packageManager
+        val installed = fingerprints(manager.getPackageInfo(pkg, flags))
+        val downloaded = fingerprints(manager.getPackageArchiveInfo(file.path, flags)
+            ?: error("Could not read APK signing certificate"))
+        require(installed.isNotEmpty() && installed == downloaded) {
+            "Update signing certificate differs from the installed app"
         }
     }
 
     companion object {
         fun name(id: String) = "instance:$id"
 
-        fun enqueue(context: Context, instance: Instance) {
+        fun enqueue(context: Context, instance: Instance, update: Boolean = false) {
             Validation.check(instance)
+            val download = instance.usesGeode || !instance.url.isNullOrBlank() ||
+                !instance.updateManifest.isNullOrBlank()
+            val data = workDataOf("instance" to Gson().toJson(instance),
+                "instance_id" to instance.id, "download" to download, "update" to update)
+            DownloadControl.remember(context, instance, update)
             val request =
                 OneTimeWorkRequestBuilder<InstanceWorker>()
-                    .setInputData(workDataOf("instance" to Gson().toJson(instance)))
+                    .setInputData(data)
                     .setConstraints(
                         Constraints.Builder()
                             .apply {
-                                if (instance.usesGeode || !instance.url.isNullOrBlank())
+                                if (download)
                                     setRequiredNetworkType(NetworkType.CONNECTED)
                             }
                             .build()
                     )
+                    .apply { if (download) addTag("download") }
                     .addTag("instances")
                     .addTag(name(instance.id))
                     .addTag("created:${System.currentTimeMillis()}")

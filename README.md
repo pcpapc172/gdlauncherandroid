@@ -1,6 +1,6 @@
 # GD Instance Launcher
 
-Android launcher for making separate installations of a user's own Geometry Dash APK and managing their shortcuts. Android 7.0+; Android SDK 34; Java 17.
+Android launcher for making separate installations of a user's own Geometry Dash APK and managing their shortcuts. Android 7.0+; Android SDK 35; Java 17.
 
 ## Instance types
 
@@ -35,14 +35,25 @@ The launcher is installed as a **separate package per game instance**. Its game-
 
 WorkManager owns preparation/download tasks across rotation and process recreation. Rows use instance IDs, not RecyclerView positions. Cancel/retry, progress/error text, prepared-APK installation, explicit rebuilding, and storage cleanup are available. Android's installer handles user consent; its results are returned to the app. Unknown-source installation permission is requested before installation.
 
-Launcher updates are downloaded separately, validated against the installed launcher's signing certificate, and exposed through an Install update button. The server cannot force an update or bypass Android installation consent.
+Launcher updates are checked and downloaded automatically at app startup by default. Use the
+overflow menu to change this setting or check manually. Updated APKs must match the installed
+app's signing certificate and declared version code. Android asks for approval when you tap
+**Install launcher update** or **Install update** on an instance.
+
+**Download controls** offers pause, resume and cancel. Resuming uses HTTP ranges when supported
+and restarts the transfer if the server cannot serve a matching range. The Android Downloads and
+preparation notification shows progress and controls when notifications are permitted.
+
+Android 12 and newer can use the system wallpaper colors with Material 3 Expressive controls.
+Choose **Add home screen widget** from an instance's menu or add an instance widget from the
+home screen picker.
 
 ## Instance server
 
 The launcher uses HTTPS only:
 
-- `https://api.pcpapc172.ir/archive/android_instances.json`
-- `https://api.pcpapc172.ir/archive/latestandroidlauncher.json`
+- `https://pcpapc172.ir/archive/android_instances.json`
+- `https://pcpapc172.ir/archive/latestandroidlauncher.json`
 
 Server unavailability keeps cached entries. The API must provide valid HTTPS and JSON; there is no insecure HTTP fallback.
 
@@ -57,21 +68,30 @@ Minimal instance array:
 
 Without `pkg`, a deterministic 24-character package is generated from the ID. Without `url`, the installed original game is patched. A supplied `url` instead downloads an already prepared APK whose package must match `pkg`.
 
-Optional fields: `pkg`, `url`, `version`, `version_code` (positive integer), `settings`, `main`, `geode_url`, `sha256`, `signer_sha256`. Activity components use `package/.Activity` or `package/full.Activity` and must belong to the selected game or Geode launcher. IDs must contain only letters, numbers, underscores and hyphens. The ID `launcher_update` is reserved. Server values cannot mark an entry as custom.
+Optional fields: `pkg`, `url`, `version`, `version_code` (positive integer), `settings`, `main`, `geode_url`, `sha256`, `signer_sha256`, `update_manifest`. Activity components use `package/.Activity` or `package/full.Activity` and must belong to the selected game or Geode launcher. IDs must contain only letters, numbers, underscores and hyphens. The ID `launcher_update` is reserved. Server values cannot mark an entry as custom.
 
-Update JSON:
+For a server-managed instance, add a newer `version_code`, its full APK `url`, and `sha256`
+to the catalog. The instance shows **Update** after a catalog refresh when the installed version
+is older. Keep the APK's package and signing key the same so Android preserves the app data.
+For a separate manifest, set `update_manifest` in the catalog or in a custom instance's advanced
+fields. Use **Check for instance update** in the instance menu.
+
+The launcher and separate instance manifests use this format:
 
 ```json
 {
   "version_code": 4,
-  "version_name": "2.1.1",
+  "version_name": "2.2.0",
   "download_url": "https://example.org/GDLauncher.apk",
-  "sha256": "<optional 64 hexadecimal characters>",
+  "sha256": "<64 hexadecimal characters>",
   "changelog": "Release notes"
 }
 ```
 
-Omit `sha256` when unavailable; do not send the placeholder above.
+Use the SHA-256 of the signed APK. A relative `download_url` resolves against the manifest URL.
+The tagged release workflow publishes `latestandroidlauncher.json` alongside the signed launcher
+APK. Publish that JSON at `https://pcpapc172.ir/archive/latestandroidlauncher.json` after the APK
+is available. The web server must allow HTTPS access to both the JSON and the APK.
 
 ## Management and backups
 

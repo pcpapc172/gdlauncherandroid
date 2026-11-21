@@ -5,14 +5,14 @@ plugins {
 
 android {
     namespace  = "ir.pcpapc172.gdlauncher1"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId   = "ir.pcpapc172.gdlauncher1"
         minSdk          = 24
         targetSdk       = 34
-        versionCode     = 2
-        versionName     = "2.0.0"
+        versionCode     = 5
+        versionName     = "2.2.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -59,7 +59,7 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("com.google.android.material:material:1.11.0")
+    implementation("com.google.android.material:material:1.14.0")
     implementation("androidx.activity:activity-ktx:1.8.2")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("com.squareup.retrofit2:retrofit:2.9.0")

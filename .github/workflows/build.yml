@@ -14,7 +14,7 @@ permissions:
 jobs:
   build:
     name: Build APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -27,20 +27,13 @@ jobs:
           distribution: temurin
           cache: gradle
 
-      - name: Cache Gradle packages
-        uses: actions/cache@v4
+      - uses: android-actions/setup-android@v3
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: gradle-${{ runner.os }}-
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+          packages: platform-tools platforms;android-35 build-tools;35.0.0
+          log-accepted-android-sdk-licenses: false
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: bash gradlew assembleDebug lintDebug --no-daemon
 
       - name: Decode release keystore
         if: github.event_name != 'pull_request'
@@ -91,7 +84,7 @@ jobs:
 
       - name: Build signed release APK
         if: github.event_name != 'pull_request'
-        run: ./gradlew assembleRelease --no-daemon
+        run: bash gradlew assembleRelease --no-daemon
         env:
           KEYSTORE_PATH: ${{ github.workspace }}/app/keystore.jks
           KEYSTORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
@@ -121,7 +114,7 @@ jobs:
 
   release:
     name: Create GitHub Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
 
@@ -129,25 +122,67 @@ jobs:
       contents: write
 
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: build-tools;35.0.0
+          log-accepted-android-sdk-licenses: false
+
       - name: Download signed release APK
         uses: actions/download-artifact@v4
         with:
           name: GDLauncher-release-signed
           path: release-apk
 
-      - name: Rename APK
+      - name: Verify and prepare release assets
+        env:
+          SIGNER_SHA256: cf4e84df333067da85625fb17bcd9c862dd1d6725a921254e5ebe1deb61e88d2
         run: |
-          cp release-apk/app-release.apk "GDLauncher-${{ github.ref_name }}.apk"
+          set -euo pipefail
+          apk=release-apk/app-release.apk
+          tools="$ANDROID_HOME/build-tools/35.0.0"
+          signer=$("$tools/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$signer" = "$SIGNER_SHA256"
+          "$tools/aapt2" dump badging "$apk" > release-apk/badging.txt
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, re
+
+          root = pathlib.Path("release-apk")
+          apk = root / "app-release.apk"
+          package = (root / "badging.txt").read_text().splitlines()[0]
+          match = re.match(r"package: name='ir\.pcpapc172\.gdlauncher1' versionCode='(\d+)' versionName='([^']+)'", package)
+          assert match, "Unexpected Android package metadata"
+          code, version = int(match[1]), match[2]
+          tag = os.environ["GITHUB_REF_NAME"]
+          assert tag == f"v{version}", "Tag must match the APK version"
+          repo = os.environ["GITHUB_REPOSITORY"]
+          name = f"GDLauncher-{tag}.apk"
+          apk = apk.rename(pathlib.Path(name))
+          with apk.open("rb") as source:
+              digest = hashlib.file_digest(source, "sha256").hexdigest()
+          manifest = {
+              "version_code": code,
+              "version_name": version,
+              "download_url": f"https://github.com/{repo}/releases/download/{tag}/{name}",
+              "sha256": digest,
+          }
+          pathlib.Path("latestandroidlauncher.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          PY
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: "GD Instance Launcher ${{ github.ref_name }}"
           body: |
-            ## GD Instance Launcher ${{ github.ref_name }}
-
-            ### Download
-            **GDLauncher-${{ github.ref_name }}.apk** – signed, install directly over the previous version.
-          files: "GDLauncher-${{ github.ref_name }}.apk"
+            This release is based on v2.0.0. It adds Material 3 Expressive, smoother in-row download progress, and automatic launcher updates from GitHub Releases.
+          files: |
+            GDLauncher-${{ github.ref_name }}.apk
+            latestandroidlauncher.json
+          fail_on_unmatched_files: true
           draft: false
           prerelease: false

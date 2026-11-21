@@ -1,14 +1,10 @@
 package ir.pcpapc172.gdlauncher1
 
-import android.annotation.SuppressLint
 import android.app.DownloadManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
-import android.database.Cursor
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -24,13 +20,17 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.ImageButton
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
+import androidx.core.view.WindowCompat
+import androidx.recyclerview.widget.DefaultItemAnimator
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.color.DynamicColors
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import com.google.gson.Gson
@@ -58,20 +58,9 @@ data class Instance(
     @Transient var downloadProgress: Int = 0
 )
 
-data class LauncherUpdate(
-    @SerializedName("version_code") val versionCode: Int,
-    @SerializedName("version_name") val versionName: String,
-    @SerializedName("download_url") val downloadUrl: String,
-    @SerializedName("changelog")    val changelog: String?,
-    @SerializedName("force_update") val forceUpdate: Boolean = false
-)
-
 interface ApiService {
     @GET("archive/android_instances.json")
     suspend fun getInstances(): List<Instance>
-
-    @GET("archive/latestandroidlauncher.json")
-    suspend fun getLauncherUpdate(): LauncherUpdate
 }
 
 class MainActivity : AppCompatActivity() {
@@ -83,8 +72,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
     private val gson = Gson()
 
-    private val activeDownloads = mutableMapOf<Long, Int>()
-    private var downloadReceiver: BroadcastReceiver? = null
+    private var installedPackages = emptyMap<String, Boolean>()
+    private var installedRefresh: Job? = null
+    private lateinit var launcherUpdates: LauncherUpdates
 
     companion object {
         private const val TAG                  = "GDManager"
@@ -98,15 +88,19 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        DynamicColors.applyToActivityIfAvailable(this)
         try {
             binding = ActivityMainBinding.inflate(layoutInflater)
             setContentView(binding.root)
+            WindowCompat.getInsetsController(window, binding.root).isAppearanceLightNavigationBars =
+                resources.getBoolean(R.bool.light_system_bars)
             setSupportActionBar(binding.toolbar)
             prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             setupRecyclerView()
             loadPersistedInstances()
             fetchDataFromServer()
-            registerDownloadReceiver()
+            launcherUpdates = LauncherUpdates(this, scope, binding.launcherUpdate, ::installApk)
+            launcherUpdates.check()
         } catch (e: Exception) {
             Log.e(TAG, "Error in onCreate", e)
             Toast.makeText(this, "Startup error: ${e.message}", Toast.LENGTH_LONG).show()
@@ -115,7 +109,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::adapter.isInitialized) adapter.notifyDataSetChanged()
+        if (::adapter.isInitialized) refreshInstalledRows()
     }
 
     override fun onPause() {
@@ -126,7 +120,6 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         scope.cancel()
-        downloadReceiver?.let { unregisterReceiver(it) }
     }
 
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
@@ -136,7 +129,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
         R.id.action_refresh        -> { fetchDataFromServer(); true }
-        R.id.action_check_update   -> { checkForLauncherUpdate(); true }
+        R.id.action_check_update   -> { launcherUpdates.check(manual = true); true }
         R.id.action_install_custom -> { showCustomInstanceDialog(); true }
         else -> super.onOptionsItemSelected(item)
     }
@@ -163,7 +156,7 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (e: Exception) { Log.e(TAG, "Error loading cached server instances", e) }
 
-        adapter.notifyDataSetChanged()
+        if (instancesList.isNotEmpty()) adapter.notifyItemRangeInserted(0, instancesList.size)
     }
 
     private fun saveCustomInstances() {
@@ -191,120 +184,107 @@ class MainActivity : AppCompatActivity() {
             try {
                 val serverData = withContext(Dispatchers.IO) { buildApi().getInstances() }
                 val valid = serverData.filter { !it.name.isNullOrEmpty() && !it.id.isNullOrEmpty() }
-                instancesList.removeAll { !it.isCustom }
-                instancesList.addAll(valid)
+                val old = instancesList.toList()
+                val active = old.filter { !it.isCustom && it.isDownloading }.associateBy { it.id }
+                val listedIds = valid.map { it.id }.toSet()
+                val rows = old.filter { it.isCustom } +
+                    valid.map { active[it.id] ?: it } + active.values.filterNot { it.id in listedIds }
+                val diff = androidx.recyclerview.widget.DiffUtil.calculateDiff(object : androidx.recyclerview.widget.DiffUtil.Callback() {
+                    override fun getOldListSize() = old.size
+                    override fun getNewListSize() = rows.size
+                    override fun areItemsTheSame(oldPosition: Int, newPosition: Int): Boolean {
+                        val before = old[oldPosition]
+                        val after = rows[newPosition]
+                        return before.isCustom == after.isCustom && before.id == after.id
+                    }
+                    override fun areContentsTheSame(oldPosition: Int, newPosition: Int) =
+                        old[oldPosition] == rows[newPosition]
+                })
+                instancesList.clear()
+                instancesList.addAll(rows)
                 cacheServerInstances(valid)
-                adapter.notifyDataSetChanged()
+                diff.dispatchUpdatesTo(adapter)
+                refreshInstalledRows()
             } catch (e: Exception) {
                 Log.e(TAG, "Network error", e)
                 Toast.makeText(this@MainActivity, "Offline – showing cached data", Toast.LENGTH_SHORT).show()
             } finally {
-                binding.loadingSpinner.visibility = View.GONE
+                binding.loadingSpinner.visibility = View.INVISIBLE
             }
         }
-    }
-
-    private fun checkForLauncherUpdate() {
-        Toast.makeText(this, "Checking for updates…", Toast.LENGTH_SHORT).show()
-        scope.launch {
-            try {
-                val info = withContext(Dispatchers.IO) { buildApi().getLauncherUpdate() }
-                val cur  = packageManager.getPackageInfo(packageName, 0).versionCode
-                if (info.versionCode > cur) showUpdateDialog(info)
-                else Toast.makeText(this@MainActivity, "You're up to date!", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                Toast.makeText(this@MainActivity, "Update check failed: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    private fun showUpdateDialog(update: LauncherUpdate) {
-        val msg = buildString {
-            append("v${update.versionName} is available!\n\n")
-            update.changelog?.let { append("What's new:\n$it\n\n") }
-            append("Update now?")
-        }
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Update Available").setMessage(msg)
-            .setPositiveButton("Update") { _, _ -> downloadLauncherUpdate(update) }
-            .setNegativeButton("Later", null)
-            .apply { if (update.forceUpdate) setCancelable(false) }
-            .show()
-    }
-
-    private fun downloadLauncherUpdate(update: LauncherUpdate) {
-        val req = DownloadManager.Request(Uri.parse(update.downloadUrl))
-            .setTitle("GD Launcher Update").setDescription("v${update.versionName}")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, "GDLauncher_update.apk")
-        (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(req)
-        Toast.makeText(this, "Downloading update…", Toast.LENGTH_SHORT).show()
     }
 
     // ── Download & install ──────────────────────────────────────────────────
 
-    fun startDownload(instance: Instance, position: Int) {
+    private fun startDownload(instance: Instance) {
         val url = instance.url
-        if (url.isNullOrEmpty()) { Toast.makeText(this, "No download URL", Toast.LENGTH_LONG).show(); return }
-        val outDir  = File(getExternalFilesDir(null), "instances").also { it.mkdirs() }
+        if (url.isNullOrEmpty() || instance.isDownloading) return
+        val outDir = File(getExternalFilesDir(null), "instances").also { it.mkdirs() }
         val outFile = File(outDir, "${instance.id}.apk")
-        val req = DownloadManager.Request(Uri.parse(url))
+        val request = DownloadManager.Request(Uri.parse(url))
             .setTitle("Downloading ${instance.name}")
             .setDescription("Pre-patched GD instance")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             .setDestinationUri(Uri.fromFile(outFile))
-        val dm   = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val dlId = dm.enqueue(req)
-        instance.downloadId = dlId; instance.isDownloading = true; instance.downloadProgress = 0
-        activeDownloads[dlId] = position
-        adapter.notifyItemChanged(position)
-        pollDownloadProgress(dlId, position, instance, outFile)
+        val downloads = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val id = downloads.enqueue(request)
+        instance.downloadId = id
+        instance.isDownloading = true
+        instance.downloadProgress = 0
+        instanceRow(instance) { adapter.notifyItemChanged(it) }
+        pollDownloadProgress(id, instance, outFile)
     }
 
-    private fun pollDownloadProgress(downloadId: Long, position: Int, instance: Instance, outFile: File) {
-        scope.launch(Dispatchers.IO) {
-            val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            var done = false
-            while (!done) {
+    private inline fun instanceRow(instance: Instance, action: (Int) -> Unit) {
+        val row = instancesList.indexOfFirst { it === instance }
+        if (row >= 0) action(row)
+    }
+
+    private fun pollDownloadProgress(downloadId: Long, instance: Instance, outFile: File) {
+        scope.launch {
+            val manager = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            while (true) {
                 delay(500)
-                val cursor: Cursor? = dm.query(DownloadManager.Query().setFilterById(downloadId))
-                cursor?.use { c ->
-                    if (c.moveToFirst()) {
-                        val status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                        val bytes  = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
-                        val total  = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-                        if (total > 0) instance.downloadProgress = ((bytes * 100) / total).toInt()
-                        when (status) {
-                            DownloadManager.STATUS_SUCCESSFUL -> {
-                                done = true; instance.isDownloading = false; instance.downloadProgress = 100
-                                activeDownloads.remove(downloadId)
-                                withContext(Dispatchers.Main) { adapter.notifyItemChanged(position); promptInstall(outFile.absolutePath, instance) }
-                            }
-                            DownloadManager.STATUS_FAILED -> {
-                                done = true; instance.isDownloading = false; instance.downloadId = -1L
-                                activeDownloads.remove(downloadId)
-                                withContext(Dispatchers.Main) { adapter.notifyItemChanged(position); Toast.makeText(this@MainActivity, "Download failed for ${instance.name}", Toast.LENGTH_LONG).show() }
-                            }
-                            else -> withContext(Dispatchers.Main) { adapter.updateProgress(position) }
-                        }
+                val snapshot = withContext(Dispatchers.IO) {
+                    manager.query(DownloadManager.Query().setFilterById(downloadId))?.use { cursor ->
+                        if (!cursor.moveToFirst()) return@use null
+                        val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                        val bytes = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                        val total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                        status to if (total > 0) (bytes * 100 / total).toInt().coerceIn(0, 100) else 0
+                    }
+                } ?: continue
+                val (status, progress) = snapshot
+                when (status) {
+                    DownloadManager.STATUS_SUCCESSFUL, DownloadManager.STATUS_FAILED -> {
+                        instance.isDownloading = false
+                        instance.downloadProgress = if (status == DownloadManager.STATUS_SUCCESSFUL) 100 else 0
+                        if (status == DownloadManager.STATUS_FAILED) instance.downloadId = -1L
+                        instanceRow(instance) { adapter.notifyItemChanged(it) }
+                        if (status == DownloadManager.STATUS_SUCCESSFUL) promptInstall(outFile.absolutePath, instance)
+                        else Toast.makeText(this@MainActivity, "Download failed for ${instance.name}", Toast.LENGTH_LONG).show()
+                        return@launch
+                    }
+                    else -> if (instance.downloadProgress != progress) {
+                        instance.downloadProgress = progress
+                        instanceRow(instance) { adapter.updateProgress(it) }
                     }
                 }
             }
         }
     }
 
-    private fun registerDownloadReceiver() {
-        downloadReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                if (::adapter.isInitialized) adapter.notifyDataSetChanged()
+    private fun refreshInstalledRows() {
+        installedRefresh?.cancel()
+        val packages = instancesList.mapNotNull { it.pkg?.trim()?.takeIf(String::isNotEmpty) }.toSet()
+        installedRefresh = scope.launch {
+            val next = withContext(Dispatchers.IO) { packages.associateWith(::isPackageInstalled) }
+            val previous = installedPackages
+            installedPackages = next
+            instancesList.forEachIndexed { row, item ->
+                val pkg = item.pkg?.trim()
+                if (previous[pkg] != next[pkg] && !item.isDownloading) adapter.notifyItemChanged(row)
             }
-        }
-        val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(downloadReceiver, filter, RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(downloadReceiver, filter)
         }
     }
 
@@ -312,7 +292,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun promptInstall(path: String, instance: Instance) {
         if (!File(path).exists()) { Toast.makeText(this, "APK file not found", Toast.LENGTH_LONG).show(); return }
-        androidx.appcompat.app.AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("Install ${instance.name}?")
             .setMessage("Package: ${instance.pkg}\n\nTap Install to proceed.")
             .setPositiveButton("Install") { _, _ -> installApk(path) }
@@ -371,10 +351,11 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) { Toast.makeText(this, "Launch failed: ${e.message}", Toast.LENGTH_LONG).show() }
     }
 
-    fun removeCustomInstance(instance: Instance, position: Int) {
+    private fun removeCustomInstance(instance: Instance) {
+        val position = instancesList.indexOfFirst { it === instance }
+        if (position < 0) return
         instancesList.removeAt(position)
         adapter.notifyItemRemoved(position)
-        adapter.notifyItemRangeChanged(position, instancesList.size)
         saveCustomInstances()
         Toast.makeText(this, "Removed '${instance.name}'", Toast.LENGTH_SHORT).show()
     }
@@ -388,7 +369,7 @@ class MainActivity : AppCompatActivity() {
 
         val labels = apps.map { packageManager.getApplicationLabel(it).toString() }.toTypedArray()
 
-        androidx.appcompat.app.AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("Pick an app")
             .setItems(labels) { _, which ->
                 val app = apps[which]
@@ -410,7 +391,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showCustomInstanceDialog() {
         val view = layoutInflater.inflate(R.layout.dialog_custom_instance, null)
-        val dialog = androidx.appcompat.app.AlertDialog.Builder(this).setView(view).create()
+        val dialog = MaterialAlertDialogBuilder(this).setView(view).create()
 
         val etName       = view.findViewById<TextInputEditText>(R.id.etName)
         val etPackage    = view.findViewById<TextInputEditText>(R.id.etPackage)
@@ -469,6 +450,7 @@ class MainActivity : AppCompatActivity() {
 
             instancesList.add(0, instance)
             adapter.notifyItemInserted(0)
+            refreshInstalledRows()
             binding.recyclerView.scrollToPosition(0)
             saveCustomInstances()
             dialog.dismiss()
@@ -484,6 +466,7 @@ class MainActivity : AppCompatActivity() {
         adapter = InstanceAdapter(instancesList, this)
         binding.recyclerView.layoutManager = LinearLayoutManager(this)
         binding.recyclerView.adapter = adapter
+        (binding.recyclerView.itemAnimator as? DefaultItemAnimator)?.supportsChangeAnimations = false
     }
 
     inner class InstanceAdapter(
@@ -499,19 +482,18 @@ class MainActivity : AppCompatActivity() {
             val btnUninstall    : ImageButton = view.findViewById(R.id.btnUninstall)
             val btnDeleteCustom : ImageButton = view.findViewById(R.id.btnDeleteCustom)
             val layoutProgress  : LinearLayout= view.findViewById(R.id.layoutProgress)
-            val progressBar     : ProgressBar = view.findViewById(R.id.progressBar)
+            val progressBar     : LinearProgressIndicator = view.findViewById(R.id.progressBar)
             val tvPercentage    : TextView    = view.findViewById(R.id.tvPercentage)
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder =
             Holder(LayoutInflater.from(parent.context).inflate(R.layout.item_instance, parent, false))
 
-        @SuppressLint("RecyclerView")
         override fun onBindViewHolder(holder: Holder, position: Int) {
             try {
                 val item        = list[position]
                 val pkgName     = item.pkg?.trim() ?: ""
-                val isInstalled = isPackageInstalled(pkgName)
+                val installed = installedPackages[pkgName]
                 val hasUrl      = !item.url.isNullOrEmpty()
 
                 holder.tvName.text    = item.name ?: "Unknown"
@@ -521,11 +503,11 @@ class MainActivity : AppCompatActivity() {
                 if (item.isCustom) {
                     holder.btnDeleteCustom.visibility = View.VISIBLE
                     holder.btnDeleteCustom.setOnClickListener {
-                        androidx.appcompat.app.AlertDialog.Builder(ctx)
+                        MaterialAlertDialogBuilder(ctx)
                             .setTitle("Remove '${item.name}'?")
                             .setMessage("This removes it from the list only. The app stays installed.")
                             .setPositiveButton("Remove") { _, _ ->
-                                (ctx as? MainActivity)?.removeCustomInstance(item, holder.adapterPosition)
+                                removeCustomInstance(item)
                             }
                             .setNegativeButton("Cancel", null)
                             .show()
@@ -536,8 +518,7 @@ class MainActivity : AppCompatActivity() {
 
                 if (item.isDownloading) {
                     holder.layoutProgress.visibility = View.VISIBLE
-                    holder.progressBar.progress      = item.downloadProgress
-                    holder.tvPercentage.text         = "${item.downloadProgress}%"
+                    bindProgress(holder, item.downloadProgress)
                     holder.btnAction.isEnabled       = false
                     holder.btnAction.text            = "Downloading…"
                     holder.btnSettings.visibility    = View.GONE
@@ -547,7 +528,13 @@ class MainActivity : AppCompatActivity() {
                     holder.btnAction.isEnabled       = true
 
                     when {
-                        isInstalled -> {
+                        installed == null && pkgName.isNotEmpty() -> {
+                            holder.btnAction.text = getString(R.string.checking_instance)
+                            holder.btnAction.isEnabled = false
+                            holder.btnSettings.visibility = View.GONE
+                            holder.btnUninstall.visibility = View.GONE
+                        }
+                        installed == true -> {
                             holder.btnAction.text = "Launch"
                             holder.btnAction.setOnClickListener { (ctx as? MainActivity)?.launchGame(item) }
                             holder.btnSettings.visibility = if (!item.settings.isNullOrEmpty()) View.VISIBLE else View.GONE
@@ -557,7 +544,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         hasUrl -> {
                             holder.btnAction.text = "Download & Install"
-                            holder.btnAction.setOnClickListener { (ctx as? MainActivity)?.startDownload(item, holder.adapterPosition) }
+                            holder.btnAction.setOnClickListener { startDownload(item) }
                             holder.btnSettings.visibility  = View.GONE
                             holder.btnUninstall.visibility = View.GONE
                         }
@@ -575,13 +562,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onBindViewHolder(holder: Holder, position: Int, payloads: MutableList<Any>) {
-            if (payloads.isNotEmpty() && payloads[0] == "progress") {
-                val item = list[position]
-                if (item.isDownloading) {
-                    holder.progressBar.progress = item.downloadProgress
-                    holder.tvPercentage.text    = "${item.downloadProgress}%"
-                }
-            } else super.onBindViewHolder(holder, position, payloads)
+            if (payloads.isNotEmpty() && payloads.all { it == "progress" } && list[position].isDownloading) {
+                bindProgress(holder, list[position].downloadProgress)
+            } else {
+                onBindViewHolder(holder, position)
+            }
+        }
+
+        private fun bindProgress(holder: Holder, progress: Int) {
+            holder.progressBar.setProgressCompat(progress, false)
+            val label = "$progress%"
+            if (holder.tvPercentage.text != label) holder.tvPercentage.text = label
         }
 
         fun updateProgress(position: Int) = notifyItemChanged(position, "progress")

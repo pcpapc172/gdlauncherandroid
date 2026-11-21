@@ -4,8 +4,10 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="8dp"
-    app:cardCornerRadius="12dp"
-    app:cardElevation="4dp">
+    app:cardCornerRadius="24dp"
+    app:cardBackgroundColor="?attr/colorSurfaceContainer"
+    app:cardElevation="0dp"
+    app:strokeWidth="0dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -29,29 +31,28 @@
                     android:id="@+id/tvName"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Instance Name"
-                    android:textSize="18sp"
-                    android:textStyle="bold" />
+                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                    android:textColor="?attr/colorOnSurface" />
 
                 <TextView
                     android:id="@+id/tvVersion"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="v2.2"
-                    android:textColor="#757575"/>
+                    android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                    android:textColor="?attr/colorOnSurfaceVariant"/>
 
             </LinearLayout>
 
             <!-- Delete button for custom instances only -->
             <ImageButton
                 android:id="@+id/btnDeleteCustom"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_delete"
                 android:contentDescription="Remove custom instance"
                 android:visibility="gone"
-                app:tint="#BDBDBD" />
+                app:tint="?attr/colorOnSurfaceVariant" />
 
         </LinearLayout>
 
@@ -62,7 +63,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:padding="12dp"
-            android:background="#E3F2FD"
+            android:background="@drawable/bg_download_progress"
             android:layout_marginTop="8dp"
             android:layout_marginBottom="4dp"
             android:visibility="gone">
@@ -78,10 +79,10 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="⬇️ Downloading…"
+                    android:text="@string/downloading"
                     android:textSize="14sp"
                     android:textStyle="bold"
-                    android:textColor="#1565C0"/>
+                    android:textColor="?attr/colorOnSecondaryContainer"/>
 
                 <TextView
                     android:id="@+id/tvPercentage"
@@ -90,17 +91,15 @@
                     android:text="0%"
                     android:textStyle="bold"
                     android:textSize="16sp"
-                    android:textColor="#2196F3"/>
+                    android:textColor="?attr/colorOnSecondaryContainer"/>
             </LinearLayout>
 
-            <ProgressBar
+            <com.google.android.material.progressindicator.LinearProgressIndicator
                 android:id="@+id/progressBar"
-                style="?android:attr/progressBarStyleHorizontal"
+                style="@style/Widget.Material3Expressive.LinearProgressIndicator.Wavy"
                 android:layout_width="match_parent"
-                android:layout_height="12dp"
-                android:max="100"
-                android:progress="0"
-                android:progressTint="#2196F3" />
+                android:layout_height="wrap_content"
+                android:max="100" />
         </LinearLayout>
 
         <!-- Action row -->
@@ -111,8 +110,9 @@
             android:gravity="center_vertical"
             android:layout_marginTop="8dp">
 
-            <Button
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnAction"
+                style="@style/Widget.Material3Expressive.Button"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -127,7 +127,7 @@
                 android:src="@drawable/ic_settings"
                 android:contentDescription="Settings"
                 android:visibility="gone"
-                app:tint="#757575" />
+                app:tint="?attr/colorOnSurfaceVariant" />
 
             <ImageButton
                 android:id="@+id/btnUninstall"
@@ -138,7 +138,7 @@
                 android:src="@drawable/ic_delete"
                 android:contentDescription="Uninstall"
                 android:visibility="gone"
-                app:tint="#D32F2F" />
+                app:tint="?attr/colorError" />
 
         </LinearLayout>
 

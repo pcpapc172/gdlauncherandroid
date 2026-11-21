@@ -1,3 +1,10 @@
 <resources>
-    <string name="app_name">GD Instance launcher</string>
+    <string name="app_name">GD Instance Launcher</string>
+    <string name="downloading">Downloading…</string>
+    <string name="checking_instance">Checking…</string>
+    <string name="launcher_update_checking">Checking for a launcher update…</string>
+    <string name="launcher_update_download">Downloading launcher update…</string>
+    <string name="launcher_update_ready">Install launcher update</string>
+    <string name="launcher_update_failed">Launcher update failed: %1$s</string>
+    <string name="launcher_up_to_date">Launcher is up to date</string>
 </resources>

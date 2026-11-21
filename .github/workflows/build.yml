@@ -88,11 +88,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: GDLauncher-release
           path: release-apk
-      - uses: actions/checkout@v4
       - name: Generate launcher update manifest
         run: |
           python3 - <<'PY'

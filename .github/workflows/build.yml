@@ -179,7 +179,7 @@ jobs:
         with:
           name: "GD Instance Launcher ${{ github.ref_name }}"
           body: |
-            This release is based on v2.0.0. It adds Material 3 Expressive, smoother in-row download progress, and automatic launcher updates from GitHub Releases.
+            Download progress now advances smoothly and the Material wave keeps moving while the row is visible.
           files: |
             GDLauncher-${{ github.ref_name }}.apk
             latestandroidlauncher.json

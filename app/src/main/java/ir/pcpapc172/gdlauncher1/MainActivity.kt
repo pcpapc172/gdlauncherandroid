@@ -563,14 +563,14 @@ class MainActivity : AppCompatActivity() {
 
         override fun onBindViewHolder(holder: Holder, position: Int, payloads: MutableList<Any>) {
             if (payloads.isNotEmpty() && payloads.all { it == "progress" } && list[position].isDownloading) {
-                bindProgress(holder, list[position].downloadProgress)
+                bindProgress(holder, list[position].downloadProgress, animate = true)
             } else {
                 onBindViewHolder(holder, position)
             }
         }
 
-        private fun bindProgress(holder: Holder, progress: Int) {
-            holder.progressBar.setProgressCompat(progress, false)
+        private fun bindProgress(holder: Holder, progress: Int, animate: Boolean = false) {
+            holder.progressBar.setProgressCompat(progress, animate && progress > holder.progressBar.progress)
             val label = "$progress%"
             if (holder.tvPercentage.text != label) holder.tvPercentage.text = label
         }

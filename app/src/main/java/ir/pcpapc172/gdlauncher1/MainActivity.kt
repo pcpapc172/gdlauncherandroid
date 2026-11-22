@@ -95,16 +95,23 @@ class MainActivity : AppCompatActivity() {
             WindowCompat.getInsetsController(window, binding.root).isAppearanceLightNavigationBars =
                 resources.getBoolean(R.bool.light_system_bars)
             setSupportActionBar(binding.toolbar)
+            launcherUpdates = LauncherUpdates(
+                this, scope, binding.launcherUpdatePanel, binding.launcherUpdateStatus,
+                binding.launcherUpdateProgress, binding.launcherUpdate, ::installApk
+            )
             prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             setupRecyclerView()
             loadPersistedInstances()
             fetchDataFromServer()
-            launcherUpdates = LauncherUpdates(this, scope, binding.launcherUpdate, ::installApk)
-            launcherUpdates.check()
         } catch (e: Exception) {
             Log.e(TAG, "Error in onCreate", e)
             Toast.makeText(this, "Startup error: ${e.message}", Toast.LENGTH_LONG).show()
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (::launcherUpdates.isInitialized) launcherUpdates.check()
     }
 
     override fun onResume() {
@@ -129,7 +136,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean = when (item.itemId) {
         R.id.action_refresh        -> { fetchDataFromServer(); true }
-        R.id.action_check_update   -> { launcherUpdates.check(manual = true); true }
+        R.id.action_check_update   -> { if (::launcherUpdates.isInitialized) launcherUpdates.check(manual = true); true }
         R.id.action_install_custom -> { showCustomInstanceDialog(); true }
         else -> super.onOptionsItemSelected(item)
     }

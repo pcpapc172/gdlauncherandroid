@@ -179,7 +179,7 @@ jobs:
         with:
           name: "GD Instance Launcher ${{ github.ref_name }}"
           body: |
-            Download progress now advances smoothly and the Material wave keeps moving while the row is visible.
+            The launcher checks for updates when opened, prompts before downloading, and shows live progress while downloading the launcher APK.
           files: |
             GDLauncher-${{ github.ref_name }}.apk
             latestandroidlauncher.json

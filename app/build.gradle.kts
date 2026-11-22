@@ -11,8 +11,8 @@ android {
         applicationId   = "ir.pcpapc172.gdlauncher1"
         minSdk          = 24
         targetSdk       = 34
-        versionCode     = 6
-        versionName     = "2.2.2"
+        versionCode     = 7
+        versionName     = "2.2.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

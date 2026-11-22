@@ -8,25 +8,34 @@ import android.os.Environment
 import android.util.Log
 import android.view.View
 import android.widget.Button
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Lifecycle
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import java.io.File
 import java.net.URL
 import java.security.MessageDigest
 import javax.net.ssl.HttpsURLConnection
+import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
 internal class LauncherUpdates(
     private val activity: AppCompatActivity,
     private val scope: CoroutineScope,
+    private val panel: View,
+    private val status: TextView,
+    private val progress: LinearProgressIndicator,
     private val button: Button,
     private val install: (String) -> Unit,
 ) {
@@ -41,6 +50,9 @@ internal class LauncherUpdates(
     private val manager = activity.getSystemService(DownloadManager::class.java)
     private var job: Job? = null
     private var ready: File? = null
+    private var deferredVersion = 0
+
+    private data class DownloadProgress(val status: Int, val bytes: Long, val total: Long)
 
     @Suppress("DEPRECATION")
     private fun version(info: android.content.pm.PackageInfo): Long =
@@ -65,7 +77,7 @@ internal class LauncherUpdates(
                 val pendingHash = prefs.getString("sha256", null)
                 if (downloadId >= 0 && pendingCode > current && pendingHash != null &&
                     DIGEST.matches(pendingHash)) {
-                    showDownloading()
+                    showProgress(R.string.launcher_update_download)
                     awaitDownload(downloadId, pendingCode, pendingHash)
                     return@launch
                 }
@@ -75,6 +87,12 @@ internal class LauncherUpdates(
                 val release = withContext(Dispatchers.IO) { latest() }
                 if (release.code <= current) {
                     if (manual) message(R.string.launcher_up_to_date)
+                    return@launch
+                }
+                if (!manual && release.code == deferredVersion) return@launch
+                if (!activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return@launch
+                if (!confirmDownload(requireNotNull(release.version))) {
+                    deferredVersion = release.code
                     return@launch
                 }
                 val hash = requireNotNull(release.sha256)
@@ -93,13 +111,13 @@ internal class LauncherUpdates(
                             .putString("sha256", hash).apply()
                     }
                 }
-                showDownloading()
+                showProgress(R.string.launcher_update_download)
                 awaitDownload(downloadId, release.code, hash)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w("LauncherUpdates", "Launcher update failed", e)
-                button.visibility = View.GONE
+                panel.visibility = View.GONE
                 if (downloadId >= 0) {
                     withContext(Dispatchers.IO) { manager.remove(downloadId) }
                     prefs.edit().clear().apply()
@@ -116,7 +134,9 @@ internal class LauncherUpdates(
         val connection = URL(MANIFEST).openConnection() as HttpsURLConnection
         connection.connectTimeout = 10_000
         connection.readTimeout = 15_000
+        connection.useCaches = false
         connection.setRequestProperty("Accept", "application/json")
+        connection.setRequestProperty("Cache-Control", "no-cache")
         val release = try {
             require(connection.responseCode == 200) { "GitHub returned HTTP ${connection.responseCode}" }
             connection.inputStream.buffered().use { input ->
@@ -144,24 +164,60 @@ internal class LauncherUpdates(
         return release
     }
 
-    private fun showDownloading() {
-        button.text = activity.getString(R.string.launcher_update_download)
-        button.isEnabled = false
-        button.visibility = View.VISIBLE
+    private suspend fun confirmDownload(version: String): Boolean = suspendCancellableCoroutine { choice ->
+        val dialog = MaterialAlertDialogBuilder(activity)
+            .setTitle(activity.getString(R.string.launcher_update_available, version))
+            .setMessage(R.string.launcher_update_offer)
+            .setPositiveButton(R.string.launcher_update_accept) { _, _ ->
+                if (choice.isActive) choice.resume(true)
+            }
+            .setNegativeButton(R.string.launcher_update_later) { _, _ ->
+                if (choice.isActive) choice.resume(false)
+            }
+            .setOnCancelListener { if (choice.isActive) choice.resume(false) }
+            .show()
+        choice.invokeOnCancellation { dialog.dismiss() }
+    }
+
+    private fun showProgress(message: Int, percent: Int? = null) {
+        val title = activity.getString(message)
+        status.text = if (percent == null) title else
+            activity.getString(R.string.launcher_update_progress, title, percent)
+        status.visibility = View.VISIBLE
+        progress.visibility = View.VISIBLE
+        button.visibility = View.GONE
+        panel.visibility = View.VISIBLE
+        if (percent == null) {
+            if (!progress.isIndeterminate) progress.isIndeterminate = true
+        } else {
+            progress.setProgressCompat(percent, !progress.isIndeterminate && percent > progress.progress)
+        }
     }
 
     private suspend fun awaitDownload(id: Long, code: Int, sha256: String) {
         while (true) {
-            val status = withContext(Dispatchers.IO) {
+            val download = withContext(Dispatchers.IO) {
                 manager.query(DownloadManager.Query().setFilterById(id))?.use { cursor ->
                     if (!cursor.moveToFirst()) error("Download was removed")
-                    cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                    DownloadProgress(
+                        cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)),
+                        cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)),
+                        cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                    )
                 } ?: error("Download was removed")
             }
-            if (status == DownloadManager.STATUS_SUCCESSFUL) break
-            if (status == DownloadManager.STATUS_FAILED) error("APK download failed")
-            delay(1_000)
+            if (download.status == DownloadManager.STATUS_SUCCESSFUL) break
+            if (download.status == DownloadManager.STATUS_FAILED) error("APK download failed")
+            val percent = if (download.total > 0)
+                (download.bytes * 100 / download.total).toInt().coerceIn(0, 100)
+            else null
+            val message = if (download.status == DownloadManager.STATUS_PAUSED ||
+                download.status == DownloadManager.STATUS_PENDING) R.string.launcher_update_waiting
+            else R.string.launcher_update_download
+            showProgress(message, percent)
+            delay(500)
         }
+        showProgress(R.string.launcher_update_verifying)
         val file = withContext(Dispatchers.IO) {
             val apk = updateFile(code)
             val digest = MessageDigest.getInstance("SHA-256")
@@ -184,8 +240,9 @@ internal class LauncherUpdates(
             apk
         }
         ready = file
-        button.text = activity.getString(R.string.launcher_update_ready)
-        button.isEnabled = true
+        status.visibility = View.GONE
+        progress.visibility = View.GONE
+        button.visibility = View.VISIBLE
         button.setOnClickListener { install(file.absolutePath) }
     }
 
